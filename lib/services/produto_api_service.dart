@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/produto.dart';
+import 'auth_client_stub.dart'
+    if (dart.library.js_interop) 'auth_client_web.dart' as plataforma;
 
 /// Consulta pública, somente leitura. Nenhuma rota POST/PUT/DELETE é usada.
 /// A URL deve terminar em /api (por exemplo localhost:3001/api).
@@ -20,8 +22,8 @@ class ProdutoApiService {
     return parametros == null ? url : url.replace(queryParameters: parametros);
   }
 
-  Future<CatalogoApiResultado> listarCatalogo() async {
-    final cliente = http.Client();
+  Future<CatalogoApiResultado> listarCatalogo({bool paraAdmin = false}) async {
+    final cliente = paraAdmin ? plataforma.criarClienteAuth() : http.Client();
     try {
       // Se a API disponibilizar as categorias separadamente, aproveitamos
       // o slug. A ausência desse endpoint não impede a leitura dos produtos.
@@ -33,7 +35,8 @@ class ProdutoApiService {
       for (var pagina = 1; pagina <= 20; pagina++) {
         final resposta = await cliente
             .get(
-              _rota('products', {'page': '$pagina', 'limit': '$limite'}),
+              _rota(paraAdmin ? 'admin/products' : 'products',
+                  {'page': '$pagina', 'limit': '$limite'}),
             )
             .timeout(const Duration(seconds: 15));
         if (resposta.statusCode < 200 || resposta.statusCode >= 300) {
@@ -70,7 +73,10 @@ class ProdutoApiService {
       final produtos = <Produto>[];
       final categoriasSemCorrespondencia = <String>{};
       for (final dado in produtosBrutos) {
-        if (dado['isActive'] == false || dado['isAvailable'] == false) continue;
+        if (!paraAdmin &&
+            (dado['isActive'] == false || dado['isAvailable'] == false)) {
+          continue;
+        }
         final produto = _produto(dado, categorias);
         if (produto == null) continue;
         if (produto.categoria == 'categoria-nao-mapeada') {
@@ -241,6 +247,10 @@ class ProdutoApiService {
       preco: promocaoValida ? promocional : original,
       precoAntigo: promocaoValida ? original : null,
       oferta: promocaoValida,
+      categoryId: _inteiro(dado['categoryId']),
+      ativo: dado['isActive'] != false,
+      disponivel: dado['isAvailable'] != false,
+      estoque: _inteiro(dado['stock']) ?? 0,
       descricao: _texto(dado['description'] ?? dado['descricao']),
       imagem: imagem,
       icon: icones[categoria] ?? '🍽️',

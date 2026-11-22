@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,7 @@ import '../models/vale_presente.dart';
 import 'validade_vale.dart';
 import 'auth_api_service.dart';
 import 'produto_api_service.dart';
+import 'admin_produto_api_service.dart';
 
 /// Configuração de uma promoção de um produto já cadastrado.
 /// As datas são inclusivas: uma promoção com término em 10/11
@@ -497,6 +499,7 @@ class AppState extends ChangeNotifier {
   // O catálogo da API é carregado após os dados locais de demonstração.
   // Se a API falhar no primeiro carregamento, não exibimos produtos fictícios.
   final ProdutoApiService _produtoApi = ProdutoApiService();
+  final AdminProdutoApiService _adminProdutosApi = AdminProdutoApiService();
   bool catalogoApiAtivo = false;
   bool carregandoCatalogoApi = false;
   String? erroCatalogoApi;
@@ -508,7 +511,7 @@ class AppState extends ChangeNotifier {
     erroCatalogoApi = null;
     notifyListeners();
     try {
-      final resultado = await _produtoApi.listarCatalogo();
+      final resultado = await _produtoApi.listarCatalogo(paraAdmin: isAdmin);
       // Resposta válida (até vazia) substitui os dados demonstrativos.
       // Nunca escrevemos esses registros de volta ao navegador ou ao banco.
       produtos
@@ -715,6 +718,56 @@ class AppState extends ChangeNotifier {
         .toList();
   }
 
+  /// Operações reais: não atualiza a interface antes de a API confirmar.
+  Future<void> salvarProdutoComApi(
+    Produto produto, {
+    Produto? editando,
+    Uint8List? fotoBytes,
+    String? nomeArquivo,
+  }) async {
+    if (!isAdmin || !logadoPelaApi) {
+      throw const AdminProdutoApiException('Faça login com uma conta ADMIN.');
+    }
+    final id = await _adminProdutosApi.salvar(
+      produto,
+      anterior: editando,
+      fotoSelecionada: fotoBytes != null,
+    );
+    try {
+      if (fotoBytes != null) {
+        if (nomeArquivo == null) {
+          throw const AdminProdutoApiException('Informe o nome da foto.');
+        }
+        await _adminProdutosApi.enviarFoto(id, fotoBytes, nomeArquivo);
+      }
+    } catch (e) {
+      await carregarCatalogoApi();
+      throw AdminProdutoApiException(
+        'O produto foi salvo no banco, mas a imagem NÃO foi enviada: $e. '
+        'Confira o produto no Supabase antes de tentar salvar novamente.',
+      );
+    }
+    await carregarCatalogoApi();
+    if (erroCatalogoApi != null) {
+      throw const AdminProdutoApiException(
+        'O produto foi salvo no banco, mas a atualização do catálogo falhou. '
+        'Atualize a página antes de tentar novamente.',
+      );
+    }
+  }
+
+  /// Desativa/reativa, nunca exclui definitivamente os registros.
+  Future<void> atualizarAtivacaoProdutoComApi(
+    int id, {
+    required bool ativo,
+  }) async {
+    if (!isAdmin || !logadoPelaApi) {
+      throw const AdminProdutoApiException('Faça login com uma conta ADMIN.');
+    }
+    await _adminProdutosApi.atualizarAtivacao(id, ativo: ativo);
+    await carregarCatalogoApi();
+  }
+
   void salvarProduto(
     Produto produto, {
     Produto? editando,
@@ -813,6 +866,8 @@ class AppState extends ChangeNotifier {
         tipo: sessao.user.isAdmin ? 'admin' : 'cliente',
       );
       notifyListeners();
+      // Recarrega a lista com /admin/products após login administrativo.
+      if (isAdmin) await carregarCatalogoApi();
       return null;
     } on DVanilleApiException catch (e) {
       return e.message;
@@ -835,7 +890,11 @@ class AppState extends ChangeNotifier {
       }));
     }
     usuarioLogado = null;
+    // Nunca manter dados administrativos na tela depois de sair.
+    produtos.clear();
+    catalogoApiAtivo = false;
     notifyListeners();
+    unawaited(carregarCatalogoApi());
   }
 
   bool emailJaCadastrado(String email) => usuarios.any(

@@ -4,6 +4,7 @@ import 'package:dvanille/app/app.dart';
 import 'package:dvanille/data/mock_data.dart';
 import 'package:dvanille/models/produto.dart';
 import 'package:dvanille/services/app_state.dart';
+import 'package:dvanille/services/admin_produto_api_service.dart';
 import 'package:dvanille/services/navigation.dart';
 import 'package:dvanille/theme/app_theme.dart';
 import 'package:dvanille/widgets/ui_kit.dart';
@@ -50,8 +51,10 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Excluir produto'),
-        content: Text('Tem certeza que deseja excluir "${produto.nome}"?'),
+        title: Text(produto.ativo ? 'Desativar produto' : 'Reativar produto'),
+        content: Text(produto.ativo
+            ? 'Desativar "${produto.nome}" no Supabase? Não será excluído definitivamente.'
+            : 'Reativar "${produto.nome}"? O produto continuará indisponível até ser liberado.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -59,15 +62,33 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Excluir'),
+            child: Text(produto.ativo ? 'Desativar' : 'Reativar'),
           ),
         ],
       ),
     );
     if (!mounted) return;
     if (confirmar == true) {
-      AppState.instance.excluirProduto(produto.id);
-      showToast('Produto excluído!', 'lixeira.svg');
+      try {
+        await AppState.instance.atualizarAtivacaoProdutoComApi(
+          produto.id, ativo: !produto.ativo,
+        );
+        if (!mounted) return;
+        showToast(
+          produto.ativo ? 'Produto desativado no banco!' : 'Produto reativado!',
+          'palmas.svg',
+        );
+      } on AdminProdutoApiException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.mensagem)),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Falha ao alterar produto na API.')),
+        );
+      }
     }
   }
 
@@ -112,7 +133,7 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
           child: Row(children: [
             Icon(Icons.delete_outline_rounded, color: Color(0xFFB5473F)),
             SizedBox(width: 12),
-            Text('Excluir', style: TextStyle(color: Color(0xFFB5473F))),
+            Text('Ativar / desativar', style: TextStyle(color: Color(0xFFB5473F))),
           ]),
         ),
       ],
@@ -164,7 +185,9 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const StatusPill('ativo'),
+          StatusPill(!produto.ativo
+              ? 'inativo'
+              : produto.disponivel ? 'ativo' : 'indisponivel'),
           if (produto.oferta) ...[
             const SizedBox(height: 6),
             const Text(

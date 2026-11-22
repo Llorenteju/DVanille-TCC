@@ -57,6 +57,11 @@ class Produto {
   List<String> alergenicos;
   Nutricional nutricional;
   bool oferta;
+  // Campos de controle reais enviados pela API (não alteram o protótipo local).
+  int? categoryId;
+  bool ativo;
+  bool disponivel;
+  int estoque;
 
   Produto({
     required this.id,
@@ -72,6 +77,10 @@ class Produto {
     List<String>? alergenicos,
     Nutricional? nutricional,
     this.oferta = false,
+    this.categoryId,
+    this.ativo = true,
+    this.disponivel = true,
+    this.estoque = 0,
   })  : ingredientes = ingredientes ?? <String>[],
         restricoes = restricoes ?? <String>[],
         alergenicos = alergenicos ?? <String>[],

@@ -8,6 +8,7 @@ import '../../app/app.dart';
 import '../../data/mock_data.dart';
 import '../../models/produto.dart';
 import '../../services/app_state.dart';
+import '../../services/admin_produto_api_service.dart';
 import '../../services/navigation.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/ui_kit.dart';
@@ -36,14 +37,15 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
   final preco = TextEditingController();
   final imagem = TextEditingController();
   final alergenicos = TextEditingController();
-  final calorias = TextEditingController(text: '0');
-  final carboidratos = TextEditingController(text: '0');
-  final proteinas = TextEditingController(text: '0');
-  final gorduras = TextEditingController(text: '0');
-  final fibras = TextEditingController(text: '0');
-  final acucares = TextEditingController(text: '0');
+  final calorias = TextEditingController();
+  final carboidratos = TextEditingController();
+  final proteinas = TextEditingController();
+  final gorduras = TextEditingController();
+  final fibras = TextEditingController();
+  final acucares = TextEditingController();
 
   String categoria = categorias.first.id;
+  bool disponivelNoCardapio = false;
   final Set<String> restricoes = {};
 
   Uint8List? _fotoBytes;
@@ -87,8 +89,11 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
     editando = produto;
     nome.text = produto.nome;
     descricao.text = produto.descricao;
-    ingredientes.text = produto.ingredientes.join(', ');
-    preco.text = produto.preco.toStringAsFixed(2);
+    ingredientes.text = produto.ingredientes
+        .where((s) => !s.toLowerCase().contains('não informado'))
+        .join(', ');
+    preco.text = (produto.precoAntigo ?? produto.preco).toStringAsFixed(2);
+    disponivelNoCardapio = produto.disponivel;
     // Fotos enviadas ao navegador ficam em data URI. Não exibimos a string
     // enorme no campo de URL: ela continua disponível para pré-visualização.
     if (produto.imagem.startsWith('data:image/') &&
@@ -105,15 +110,21 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
     } else {
       imagem.text = produto.imagem.startsWith('blob:') ? '' : produto.imagem;
     }
-    alergenicos.text = produto.alergenicos.join(', ');
+    alergenicos.text = produto.alergenicos
+        .where((s) => !s.toLowerCase().contains('não informado'))
+        .join(', ');
     categoria = _normalizarCategoria(produto.categoria);
     restricoes.addAll(produto.restricoes);
-    calorias.text = '${produto.nutricional.calorias}';
-    carboidratos.text = '${produto.nutricional.carboidratos}';
-    proteinas.text = '${produto.nutricional.proteinas}';
-    gorduras.text = '${produto.nutricional.gorduras}';
-    fibras.text = '${produto.nutricional.fibras}';
-    acucares.text = '${produto.nutricional.acucares}';
+    final informados = produto.nutricional.camposInformados;
+    String campo(String chave, double valor) =>
+        informados == null || informados.contains(chave) ? '$valor' : '';
+    calorias.text = campo('calorias', produto.nutricional.calorias);
+    carboidratos.text = campo('carboidratos', produto.nutricional.carboidratos);
+    proteinas.text = campo('proteinas', produto.nutricional.proteinas);
+    gorduras.text = campo('gorduras', produto.nutricional.gorduras);
+    fibras.text = campo('fibras', produto.nutricional.fibras);
+    // Não existe coluna de açúcares no backend atual.
+    acucares.clear();
   }
 
   @override
@@ -408,12 +419,49 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       });
       return;
     }
-    if (valorPreco < 0) {
-      setState(() => erro = 'O preço não pode ser negativo.');
+    if (valorPreco <= 0) {
+      setState(() => erro = 'O preço deve ser maior que zero.');
       return;
     }
     if (state.nomeProdutoDuplicado(nome.text, ignorando: editando)) {
       setState(() => erro = 'Já existe um produto com esse nome.');
+      return;
+    }
+
+    if (acucares.text.trim().isNotEmpty) {
+      setState(() =>
+          erro = 'A informação de açúcares ainda não tem coluna no banco. '
+              'Deixe esse campo vazio por enquanto.');
+      return;
+    }
+    final restricoesSemSuporte =
+        restricoes.difference({'vegano', 'vegetariano'});
+    if (restricoesSemSuporte.isNotEmpty) {
+      setState(() => erro =
+          'As restrições alimentares selecionadas precisam de validação e '
+              'da integração da tabela product_restrictions antes de salvar.');
+      return;
+    }
+    final informados = <String>{};
+    for (final entrada in <String, TextEditingController>{
+      'calorias': calorias,
+      'carboidratos': carboidratos,
+      'proteinas': proteinas,
+      'gorduras': gorduras,
+      'fibras': fibras,
+    }.entries) {
+      if (entrada.value.text.trim().isEmpty) continue;
+      final numero = double.tryParse(entrada.value.text.replaceAll(',', '.'));
+      if (numero == null || numero < 0) {
+        setState(() =>
+            erro = 'Informe valores nutricionais válidos ou deixe em branco.');
+        return;
+      }
+      informados.add(entrada.key);
+    }
+    if (calorias.text.trim().isNotEmpty &&
+        _num(calorias) != _num(calorias).roundToDouble()) {
+      setState(() => erro = 'Calorias devem ser um número inteiro.');
       return;
     }
 
@@ -428,6 +476,8 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       preco: valorPreco,
       descricao: descricao.text.trim(),
       imagem: caminhoImagem,
+      disponivel: disponivelNoCardapio,
+      ativo: editando?.ativo ?? true,
       icon: editando?.icon ?? '🍽️',
       ingredientes: _lista(ingredientes),
       restricoes: restricoes.toList(),
@@ -439,35 +489,40 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
         gorduras: _num(gorduras),
         fibras: _num(fibras),
         acucares: _num(acucares),
+        camposInformados: informados,
       ),
     );
 
-    setState(() => _salvando = true);
-    state.salvarProduto(dados, editando: editando);
-    // Confirma se o navegador conseguiu guardar o produto para o reload.
-    final persistido = await state.salvarProdutos();
-    if (!mounted) return;
-    setState(() => _salvando = false);
-
-    if (!persistido) {
-      setState(() {
-        erro = 'A alteração aparece agora no site, mas não pôde ser '
-            'salva no navegador. O armazenamento pode estar cheio. '
-            'Tente uma imagem menor.';
-      });
-      return;
+    setState(() {
+      _salvando = true;
+      erro = null;
+    });
+    try {
+      await state.salvarProdutoComApi(
+        dados,
+        editando: editando,
+        fotoBytes: _fotoBytes,
+        nomeArquivo: _nomeArquivo,
+      );
+      if (!mounted) return;
+      showToast(
+          editando == null
+              ? 'Produto cadastrado no Supabase!'
+              : 'Produto atualizado no Supabase!',
+          'palmas.svg');
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        Routes.adminProdutos,
+        (route) => false,
+      );
+    } on AdminProdutoApiException catch (e) {
+      if (!mounted) return;
+      setState(() => erro = e.mensagem);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => erro = 'Não foi possível salvar o produto na API.');
+    } finally {
+      if (mounted) setState(() => _salvando = false);
     }
-
-    showToast(
-      editando == null
-          ? 'Produto cadastrado com sucesso!'
-          : 'Produto atualizado!',
-      '✓',
-    );
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      Routes.adminProdutos,
-      (route) => false,
-    );
   }
 
   @override
@@ -542,13 +597,27 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
                     ),
                     decoration: const InputDecoration(labelText: 'Preço (R\$)'),
                   ),
-                  const SizedBox(height: 26),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Disponível no cardápio público'),
+                    subtitle: const Text(
+                      'Ative somente depois de conferir ingredientes e alergênicos. '
+                      'Produtos novos ficam com estoque zero.',
+                    ),
+                    value: disponivelNoCardapio,
+                    onChanged: (v) => setState(() => disponivelNoCardapio = v),
+                  ),
+                  const SizedBox(height: 20),
                   _campoFoto(),
                   const SizedBox(height: 28),
                   Text(
                     'Informações nutricionais (por porção)',
                     style: AppTheme.display(size: 20, color: _corTexto),
                   ),
+                  const SizedBox(height: 8),
+                  Text('Deixe em branco os valores não verificados.',
+                      style: TextStyle(color: _corSecundaria)),
                   const SizedBox(height: 14),
                   _par(estreito, [
                     _numero(calorias, 'Calorias (kcal)'),
