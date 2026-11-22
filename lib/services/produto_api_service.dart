@@ -220,13 +220,10 @@ class ProdutoApiService {
         if (chave != null) restricoes.add(chave);
       }
     }
-    // Apenas atributos positivos explícitos permitem estas duas etiquetas.
-    if (dado['isVegan'] == true) restricoes.add('vegano');
-    if (dado['isVegetarian'] == true || dado['isVegan'] == true) {
-      restricoes.add('vegetariano');
-    }
-    // Não deduzir 'sem glúten', 'sem APLV' etc. de campos ausentes
-    // ou de flags containsX=false: segurança alimentar exige confirmação.
+    // Somente vínculos explícitos em product_restrictions viram etiquetas.
+    // Flags legadas isVegan/isVegetarian podem existir em registros antigos,
+    // mas não substituem a classificação revisada pelo grupo.
+    // Não deduzir isento de alérgenos a partir da ausência de informações.
 
     final imagem = _imagem(_texto(dado['image'] ?? dado['imageUrl']));
     final ingredientes = _itens(dado['ingredients']);
@@ -383,5 +380,5 @@ class CatalogoApiException implements Exception {
   final String mensagem;
   CatalogoApiException(this.mensagem);
   @override
-  String toString() => mensagem;
+  String toString( ) => mensagem;
 }

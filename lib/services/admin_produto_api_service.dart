@@ -34,7 +34,8 @@ class AdminProdutoApiService {
         'Content-Type': 'application/json',
       });
       if (data != null) request.body = jsonEncode(data);
-      final streamed = await client.send(request).timeout(const Duration(seconds: 20));
+      final streamed =
+          await client.send(request).timeout(const Duration(seconds: 20));
       final response = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 20));
       return _decode(response);
@@ -79,9 +80,14 @@ class AdminProdutoApiService {
 
   String _normalizar(String valor) => valor
       .toLowerCase()
-      .replaceAll('á', 'a').replaceAll('é', 'e').replaceAll('ê', 'e')
-      .replaceAll('í', 'i').replaceAll('ó', 'o').replaceAll('ã', 'a')
-      .replaceAll('ç', 'c').replaceAll(RegExp(r'[^a-z0-9]'), '');
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('ê', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ã', 'a')
+      .replaceAll('ç', 'c')
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   Future<int> _categoriaId(String categoriaLocal) async {
     final body = await _request('GET', 'admin/categories');
@@ -113,17 +119,69 @@ class AdminProdutoApiService {
     );
   }
 
-  /// Somente as restrições Vegano/Vegetariano têm campos de gravação
-  /// implementados neste endpoint. Outras precisam da tabela relacional.
-  void _validarRestricoes(Produto produto) {
-    const aceitas = {'vegano', 'vegetariano'};
-    final outras = produto.restricoes.where((r) => !aceitas.contains(r)).toList();
-    if (outras.isNotEmpty) {
+  /// Correspondência entre os filtros do Flutter e os slugs do Supabase.
+  /// Nunca inventamos IDs: são sempre consultados em /dietary-restrictions.
+  static const Map<String, String> _slugPorChave = {
+    'semAPLV': 'sem-aplv',
+    'semSoja': 'sem-soja',
+    'semOleaginosas': 'sem-oleaginosas',
+    'semAcucarAdicionado': 'sem-acucar-adicionado',
+    'semSalAdicionado': 'sem-sal-adicionado',
+    'lowFODMAP': 'low-fodmap',
+    'lowCarb': 'low-carb',
+    'semAditivosArtificiais': 'sem-aditivos-artificiais',
+    'vegano': 'vegano',
+    'vegetariano': 'vegetariano',
+    'semLactose': 'sem-lactose',
+    'semGluten': 'sem-gluten',
+  };
+
+  /// Somente restrições ativas no banco. Não mostra uma opção do protótipo
+  /// como disponível se ela não estiver registrada no Supabase.
+  Future<Map<String, int>> listarRestricoes() async {
+    final body = await _request('GET', 'dietary-restrictions');
+    final data = body['data'];
+    if (data is! List) {
       throw const AdminProdutoApiException(
-        'Os filtros alimentares ainda não podem ser salvos por esta rota. '
-        'Não marque restrições sem a integração e a validação dos ingredientes.',
+        'A API retornou uma lista de restrições inválida.',
       );
     }
+    final idsPorSlug = <String, int>{};
+    for (final item in data) {
+      if (item is! Map) continue;
+      final slug = '${item['slug'] ?? ''}'.trim();
+      final id = int.tryParse('${item['id'] ?? ''}');
+      if (slug.isNotEmpty && id != null && id > 0) {
+        idsPorSlug[slug] = id;
+      }
+    }
+    final resultado = <String, int>{};
+    for (final entry in _slugPorChave.entries) {
+      final id = idsPorSlug[entry.value];
+      if (id != null) resultado[entry.key] = id;
+    }
+    if (resultado.isEmpty) {
+      throw const AdminProdutoApiException(
+        'Não foram encontradas restrições alimentares válidas na API.',
+      );
+    }
+    return resultado;
+  }
+
+  Future<List<int>> _idsParaRestricoes(List<String> restricoes) async {
+    final idsPorChave = await listarRestricoes();
+    final selecionadas = {...restricoes};
+    // Vegano implica vegetariano; exibimos os dois selos após confirmação.
+    if (selecionadas.contains('vegano')) selecionadas.add('vegetariano');
+    final desconhecidas =
+        selecionadas.where((chave) => !idsPorChave.containsKey(chave)).toList();
+    if (desconhecidas.isNotEmpty) {
+      throw AdminProdutoApiException(
+        'Uma restrição selecionada não está disponível no Supabase: '
+        '${desconhecidas.join(', ')}. Atualize o formulário.',
+      );
+    }
+    return selecionadas.map((chave) => idsPorChave[chave]!).toList()..sort();
   }
 
   Map<String, dynamic> _payload(
@@ -131,26 +189,24 @@ class AdminProdutoApiService {
     int categoriaId, {
     required bool novo,
     required bool incluirImagem,
+    required List<int> restrictionIds,
   }) {
-    _validarRestricoes(produto);
     final campos = produto.nutricional.camposInformados;
     bool informado(String chave) => campos == null || campos.contains(chave);
     final map = <String, dynamic>{
       'categoryId': categoriaId,
+      // [] remove os vínculos na edição; o backend salva numa transação.
+      'restrictionIds': restrictionIds,
       'name': produto.nome.trim(),
       'description': produto.descricao.trim(),
       'price': produto.preco,
       'ingredients': produto.ingredientes.join(', '),
       'allergens': produto.alergenicos.join(', '),
-      'calories': informado('calorias')
-          ? produto.nutricional.calorias.round()
-          : null,
-      'carbohydrates': informado('carboidratos')
-          ? produto.nutricional.carboidratos
-          : null,
-      'proteins': informado('proteinas')
-          ? produto.nutricional.proteinas
-          : null,
+      'calories':
+          informado('calorias') ? produto.nutricional.calorias.round() : null,
+      'carbohydrates':
+          informado('carboidratos') ? produto.nutricional.carboidratos : null,
+      'proteins': informado('proteinas') ? produto.nutricional.proteinas : null,
       'fats': informado('gorduras') ? produto.nutricional.gorduras : null,
       'fiber': informado('fibras') ? produto.nutricional.fibras : null,
       'isVegan': produto.restricoes.contains('vegano'),
@@ -178,6 +234,7 @@ class AdminProdutoApiService {
       );
     }
     final categoryId = await _categoriaId(produto.categoria);
+    final restrictionIds = await _idsParaRestricoes(produto.restricoes);
     final novo = anterior == null;
     final incluirImagem = !fotoSelecionada &&
         (novo ? produto.imagem.isNotEmpty : produto.imagem != anterior.imagem);
@@ -200,6 +257,7 @@ class AdminProdutoApiService {
         categoryId,
         novo: novo,
         incluirImagem: incluirImagem,
+        restrictionIds: restrictionIds,
       ),
     );
     final dados = res['data'];
@@ -221,7 +279,8 @@ class AdminProdutoApiService {
     };
     final client = plataforma.criarClienteAuth();
     try {
-      final request = http.MultipartRequest('POST', _url('admin/products/$id/image'));
+      final request =
+          http.MultipartRequest('POST', _url('admin/products/$id/image'));
       request.headers['Accept'] = 'application/json';
       request.files.add(http.MultipartFile.fromBytes(
         'image',
@@ -229,7 +288,8 @@ class AdminProdutoApiService {
         filename: nomeArquivo,
         contentType: MediaType.parse(mime),
       ));
-      final streamed = await client.send(request).timeout(const Duration(seconds: 30));
+      final streamed =
+          await client.send(request).timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 30));
       _decode(response);
@@ -257,5 +317,5 @@ class AdminProdutoApiException implements Exception {
   final String mensagem;
   const AdminProdutoApiException(this.mensagem);
   @override
-  String toString() => mensagem;
+  String toString( ) => mensagem;
 }

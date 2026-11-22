@@ -47,6 +47,11 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
   String categoria = categorias.first.id;
   bool disponivelNoCardapio = false;
   final Set<String> restricoes = {};
+  final AdminProdutoApiService _apiRestricoes = AdminProdutoApiService();
+  Map<String, int> _idsRestricoesDisponiveis = {};
+  bool _carregandoRestricoes = true;
+  bool _confirmouRevisaoAlimentar = false;
+  String? _erroRestricoes;
 
   Uint8List? _fotoBytes;
   String? _fotoDataUri;
@@ -73,6 +78,55 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       return 'bolo';
     }
     return original;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarRestricoes();
+  }
+
+  Future<void> _carregarRestricoes() async {
+    if (mounted) {
+      setState(() {
+        _carregandoRestricoes = true;
+        _erroRestricoes = null;
+      });
+    }
+    try {
+      final ids = await _apiRestricoes.listarRestricoes();
+      if (!mounted) return;
+      setState(() {
+        _idsRestricoesDisponiveis = ids;
+        _carregandoRestricoes = false;
+      });
+    } on AdminProdutoApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erroRestricoes = e.mensagem;
+        _carregandoRestricoes = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _erroRestricoes = 'Não foi possível carregar as restrições da API.';
+        _carregandoRestricoes = false;
+      });
+    }
+  }
+
+  void _alternarRestricao(String chave, bool selecionar) {
+    setState(() {
+      if (selecionar) {
+        restricoes.add(chave);
+        if (chave == 'vegano') restricoes.add('vegetariano');
+      } else {
+        restricoes.remove(chave);
+        if (chave == 'vegetariano') restricoes.remove('vegano');
+      }
+      _confirmouRevisaoAlimentar = false;
+      erro = null;
+    });
   }
 
   @override
@@ -434,12 +488,24 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
               'Deixe esse campo vazio por enquanto.');
       return;
     }
-    final restricoesSemSuporte =
-        restricoes.difference({'vegano', 'vegetariano'});
-    if (restricoesSemSuporte.isNotEmpty) {
+    if (_carregandoRestricoes || _erroRestricoes != null) {
       setState(() => erro =
-          'As restrições alimentares selecionadas precisam de validação e '
-              'da integração da tabela product_restrictions antes de salvar.');
+          'Aguarde a consulta das restrições ao Supabase ou tente recarregá-las.');
+      return;
+    }
+    final opcoesIndisponiveis = restricoes
+        .where((chave) => !_idsRestricoesDisponiveis.containsKey(chave))
+        .toList();
+    if (opcoesIndisponiveis.isNotEmpty) {
+      setState(() => erro =
+          'Existem classificações que não estão disponíveis no Supabase. '
+              'Confira os filtros antes de salvar.');
+      return;
+    }
+    if (restricoes.isNotEmpty && !_confirmouRevisaoAlimentar) {
+      setState(() => erro =
+          'Antes de aplicar selos alimentares, confirme que os ingredientes, '
+              'os alergênicos e a possibilidade de contaminação cruzada foram revisados.');
       return;
     }
     final informados = <String>{};
@@ -641,27 +707,64 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
                       color: _corTexto,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: restricoesLabels.entries.map((entrada) {
-                      return FilterChip(
-                        label: Text(entrada.value),
-                        selected: restricoes.contains(entrada.key),
-                        selectedColor: DVanilleColors.blush,
-                        checkmarkColor: DVanilleColors.darkTaupe,
-                        onSelected: (selecionado) {
-                          setState(() {
-                            if (selecionado) {
-                              restricoes.add(entrada.key);
-                            } else {
-                              restricoes.remove(entrada.key);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Selecione apenas classificações conferidas. A ausência '
+                    'de um ingrediente na descrição não prova que o produto '
+                    'seja seguro para pessoas com alergias.',
+                    style: TextStyle(color: _corSecundaria, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_carregandoRestricoes)
+                    const LinearProgressIndicator()
+                  else if (_erroRestricoes != null)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_erroRestricoes!,
+                            style: const TextStyle(color: Colors.redAccent)),
+                        TextButton.icon(
+                          onPressed: _carregarRestricoes,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ],
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: restricoesLabels.entries
+                          .where((e) =>
+                              _idsRestricoesDisponiveis.containsKey(e.key))
+                          .map((entrada) => FilterChip(
+                                label: Text(entrada.value),
+                                selected: restricoes.contains(entrada.key),
+                                selectedColor: DVanilleColors.blush,
+                                checkmarkColor: DVanilleColors.darkTaupe,
+                                onSelected: (selecionado) => _alternarRestricao(
+                                    entrada.key, selecionado),
+                              ))
+                          .toList(),
+                    ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _confirmouRevisaoAlimentar,
+                    onChanged: restricoes.isEmpty
+                        ? null
+                        : (valor) => setState(() {
+                              _confirmouRevisaoAlimentar = valor ?? false;
+                            }),
+                    title: const Text(
+                      'Confirmo que revisei os critérios alimentares selecionados',
+                    ),
+                    subtitle: const Text(
+                      'Verifique composição, alergênicos, preparo e risco de '
+                      'contaminação cruzada. Esta confirmação não substitui '
+                      'validação técnica para comercialização.',
+                    ),
                   ),
                   const SizedBox(height: 18),
                   TextField(
@@ -690,7 +793,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
                           Routes.adminProdutos,
                           (route) => false,
                         ),
-                        child: const Text('Cancelar'),
+                        child: const Text('Cancelar' ),
                       ),
                     ],
                   ),
