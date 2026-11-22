@@ -10,6 +10,7 @@ router.use('/users', require('./userRoutes'));
 router.use('/addresses', require('./addressRoutes'));
 router.use('/products', require('./productRoutes'));
 router.use('/categories', require('./categoryRoutes'));
+router.use('/dietary-restrictions', require('./dietaryRestrictionRoutes'));
 router.use('/favorites', require('./favoriteRoutes'));
 router.use('/cart', require('./cartRoutes'));
 router.use('/orders', require('./orderRoutes'));

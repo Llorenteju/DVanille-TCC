@@ -32,6 +32,7 @@ const PRODUCT_FIELDS = [
   'containsSugar',
   'isVegetarian',
   'isVegan',
+  'restrictionIds',
 ];
 
 const BOOLEAN_FIELDS = [
@@ -86,6 +87,8 @@ const productFieldRules = (required) => {
     body('ingredients').optional({ values: 'null' }).isString().trim().isLength({ max: 5000 }).withMessage('Ingredientes muito longos.'),
     body('allergens').optional({ values: 'null' }).isString().trim().isLength({ max: 2000 }).withMessage('Alérgenos muito longos.'),
     ...BOOLEAN_FIELDS.map((field) => body(field).optional().isBoolean().withMessage(`${field} deve ser true ou false.`).toBoolean()),
+    body('restrictionIds').optional().isArray({ max: 12 }).withMessage('restrictionIds deve ser uma lista de até 12 IDs.'),
+    body('restrictionIds.*').isInt({ min: 1, max: Number.MAX_SAFE_INTEGER }).withMessage('Cada restrictionId deve ser um inteiro positivo.').toInt(),
   ];
 };
 
@@ -108,6 +111,9 @@ const BOOLEAN_QUERY_FILTERS = [
 const listProductsRules = [
   ...paginationQuery,
   query('search').optional().isString().trim().isLength({ max: 100 }).withMessage('search muito longo.'),
+  query('restrictions').optional().isString().trim().isLength({ max: 400 })
+    .matches(/^[a-z0-9-]+(?:,[a-z0-9-]+)*$/)
+    .withMessage('restrictions deve conter slugs separados por vírgulas.'),
   query('categoryId').optional().isInt({ min: 1 }).withMessage('categoryId inválido.'),
   query('minPrice').optional().isFloat({ min: 0 }).withMessage('minPrice inválido.'),
   query('maxPrice').optional().isFloat({ min: 0 }).withMessage('maxPrice inválido.'),

@@ -5,22 +5,35 @@ const { generateUniqueSlug } = require('../utils/slug');
 const { getEffectivePrice, isOnPromotion } = require('../utils/money');
 const { toPublicPath, removeStoredFile } = require('../utils/storage');
 
-const productInclude = { category: { select: { id: true, name: true, slug: true } } };
+// O backend original também roda com o Prisma MySQL, que não possui estas tabelas.
+// Detectamos as operações disponíveis no Prisma Client gerado, sem consultar ou alterar o banco.
+const hasDietaryRelations = Boolean(prisma.productRestriction && prisma.dietaryRestriction);
 
-// Filtro alimentar da query string -> condição no banco.
-// Ex.: ?lactoseFree=true => containsLactose = false ; ?vegan=true => isVegan = true
-const DIETARY_FILTERS = {
-  glutenFree: { containsGluten: false },
-  lactoseFree: { containsLactose: false },
-  milkFree: { containsMilk: false },
-  eggFree: { containsEggs: false },
-  soyFree: { containsSoy: false },
-  peanutFree: { containsPeanuts: false },
-  nutFree: { containsNuts: false },
-  sugarFree: { containsSugar: false },
-  vegetarian: { isVegetarian: true },
-  vegan: { isVegan: true },
+const productInclude = {
+  category: { select: { id: true, name: true, slug: true } },
+  ...(hasDietaryRelations ? {
+    restricoesAlimentares: {
+      select: {
+        restriction: { select: { id: true, name: true, slug: true } },
+      },
+    },
+  } : {}),
 };
+
+
+// Exigimos VÍNCULO EXPLÍCITO com uma restrição validada, nunca inferimos
+// "sem alérgenos" a partir dos booleanos containsX que têm default false.
+// Alguns filtros legados NÃO equivalem a nenhum dos 12 selos do projeto:
+// eles retornam zero itens em vez de emitir uma afirmação alimentar insegura.
+const VERIFIED_LEGACY_FILTERS = {
+  glutenFree: 'sem-gluten',
+  lactoseFree: 'sem-lactose',
+  soyFree: 'sem-soja',
+  nutFree: 'sem-oleaginosas',
+  vegan: 'vegano',
+  vegetarian: 'vegetariano',
+};
+const UNVERIFIABLE_LEGACY_FILTERS = ['milkFree', 'eggFree', 'peanutFree', 'sugarFree'];
 
 const SORT_OPTIONS = {
   name: (order) => ({ name: order }),
@@ -31,29 +44,60 @@ const SORT_OPTIONS = {
 
 const isTrue = (value) => value === true || value === 'true' || value === '1';
 
-/** Acrescenta campos derivados úteis ao app (preço efetivo, disponibilidade, resumo alimentar). */
+/**
+ * Retorna apenas restrições COM vínculo explícito no banco.
+ * product_restrictions vazio significa "não verificado", e NÃO "livre de alérgenos".
+ * Converte o id BigInt para Number para evitar falha ao serializar JSON.
+ */
 function serializeProduct(product) {
   if (!product) return product;
 
-  const effectivePrice = getEffectivePrice(product);
+  const { restricoesAlimentares: associations, ...attributes } = product;
+  const verified = hasDietaryRelations && Array.isArray(associations)
+    ? associations.map((link) => link.restriction).filter(Boolean)
+    : [];
+  const slugs = verified.map((restriction) => restriction.slug);
+  const has = (slug) => slugs.includes(slug);
+
   return {
-    ...product,
-    effectivePrice,
+    ...attributes,
+    effectivePrice: getEffectivePrice(product),
     isOnPromotion: isOnPromotion(product),
     inStock: product.isActive && product.isAvailable && product.stock > 0,
+    // Associação cadastrada não substitui validação técnica de ingredientes e contaminação cruzada.
+    dietaryClassificationStatus: verified.length ? 'HAS_EXPLICIT_LINKS' : 'UNCLASSIFIED',
+    // Formato lido pelo Flutter Web atual.
+    restricoesAlimentares: slugs,
+    // Formato detalhado para o formulário administrativo.
+    dietaryRestrictions: verified.map((r) => ({ id: Number(r.id), name: r.name, slug: r.slug })),
     dietary: {
-      glutenFree: !product.containsGluten,
-      lactoseFree: !product.containsLactose,
-      milkFree: !product.containsMilk,
-      eggFree: !product.containsEggs,
-      soyFree: !product.containsSoy,
-      peanutFree: !product.containsPeanuts,
-      nutFree: !product.containsNuts,
-      sugarFree: !product.containsSugar,
-      vegetarian: product.isVegetarian,
-      vegan: product.isVegan,
+      glutenFree: has('sem-gluten'),
+      lactoseFree: has('sem-lactose'),
+      soyFree: has('sem-soja'),
+      nutFree: has('sem-oleaginosas'),
+      vegetarian: has('vegetariano'),
+      vegan: has('vegano'),
+      // Não existem critérios verificados correspondentes a estes quatro filtros legados.
+      milkFree: false,
+      eggFree: false,
+      peanutFree: false,
+      sugarFree: false,
     },
   };
+}
+
+function dietaryConditions(filters) {
+  const slugs = [];
+  for (const [parameter, slug] of Object.entries(VERIFIED_LEGACY_FILTERS)) {
+    if (isTrue(filters[parameter])) slugs.push(slug);
+  }
+  for (const parameter of UNVERIFIABLE_LEGACY_FILTERS) {
+    if (isTrue(filters[parameter])) return { impossible: true, slugs: [] };
+  }
+  if (filters.restrictions) {
+    slugs.push(...String(filters.restrictions).split(',').map((x) => x.trim()).filter(Boolean));
+  }
+  return { impossible: false, slugs: [...new Set(slugs)] };
 }
 
 function buildProductWhere(filters = {}, { includeInactive = false } = {}) {
@@ -91,9 +135,16 @@ function buildProductWhere(filters = {}, { includeInactive = false } = {}) {
     where.stock = { gt: 0 };
   }
 
-  Object.entries(DIETARY_FILTERS).forEach(([param, condition]) => {
-    if (isTrue(filters[param])) Object.assign(where, condition);
-  });
+  const dietary = dietaryConditions(filters);
+  if (dietary.impossible || (dietary.slugs.length > 0 && !hasDietaryRelations)) {
+    // Fail-closed: banco sem vínculos não pode apresentar produto como seguro.
+    and.push({ id: -1 });
+  } else {
+    // Cada selo selecionado deve possuir um vínculo EXPLÍCITO no Supabase.
+    for (const slug of dietary.slugs) {
+      and.push({ restricoesAlimentares: { some: { restriction: { slug, isActive: true } } } });
+    }
+  }
 
   if (and.length > 0) where.AND = and;
   return where;
@@ -204,31 +255,89 @@ async function assertSkuAvailable(sku, excludeId = null) {
   }
 }
 
-async function createProduct(data) {
-  await assertCategoryUsable(data.categoryId);
-  await assertSkuAvailable(data.sku);
-  assertProductRules({
-    ...data,
-    isVegetarian: data.isVegetarian || false,
-    isVegan: data.isVegan || false,
-  });
+// Chamado somente após a validação de formato no controller.
+// Não confundir IDs de doença/preferência da conta com os 12 selos do cardápio.
+async function verifyRestrictionIds(restrictionIds) {
+  if (restrictionIds === undefined) return null;
+  if (!hasDietaryRelations) {
+    throw new AppError('Este banco ainda não possui suporte a vínculos alimentares.', 501);
+  }
+  if (!Array.isArray(restrictionIds)) {
+    throw AppError.unprocessable('restrictionIds deve ser uma lista.');
+  }
+  const ids = restrictionIds.map(Number);
+  if (ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    throw AppError.unprocessable('IDs de restrições inválidos ou repetidos.');
+  }
+  if (ids.length === 0) return [];
 
-  const slug = await generateUniqueSlug(prisma.product, data.name);
-  const product = await prisma.product.create({ data: { ...data, slug }, include: productInclude });
+  const active = await prisma.dietaryRestriction.findMany({
+    where: { id: { in: ids.map(BigInt) }, isActive: true },
+    select: { id: true },
+  });
+  if (active.length !== ids.length) {
+    throw AppError.unprocessable('Uma ou mais restrições não existem ou estão inativas.');
+  }
+  return ids.map(BigInt);
+}
+
+/**
+ * Criação/edição com vínculos atômicos (transação).
+ * Sem restrictionIds => não alterar vínculos em edição; lista [] => remover vínculos.
+ * A interface administrativa deve exigir revisão das declarações antes de enviar IDs.
+ */
+async function createProduct(data) {
+  const { restrictionIds, ...productData } = data;
+  await assertCategoryUsable(productData.categoryId);
+  await assertSkuAvailable(productData.sku);
+  assertProductRules({
+    ...productData,
+    isVegetarian: productData.isVegetarian || false,
+    isVegan: productData.isVegan || false,
+  });
+  const ids = await verifyRestrictionIds(restrictionIds);
+  const slug = await generateUniqueSlug(prisma.product, productData.name);
+
+  if (ids === null || ids.length === 0) {
+    const product = await prisma.product.create({ data: { ...productData, slug }, include: productInclude });
+    return serializeProduct(product);
+  }
+  const product = await prisma.$transaction(async (tx) => {
+    const created = await tx.product.create({ data: { ...productData, slug } });
+    await tx.productRestriction.createMany({
+      data: ids.map((restrictionId) => ({ productId: created.id, restrictionId })),
+    });
+    return tx.product.findUnique({ where: { id: created.id }, include: productInclude });
+  });
   return serializeProduct(product);
 }
 
 async function updateProduct(id, data) {
+  const { restrictionIds, ...productData } = data;
   const current = await prisma.product.findUnique({ where: { id } });
   if (!current) throw AppError.notFound('Produto não encontrado.');
 
-  if (data.categoryId !== undefined) await assertCategoryUsable(data.categoryId);
-  if (data.sku !== undefined) await assertSkuAvailable(data.sku, id);
+  if (productData.categoryId !== undefined) await assertCategoryUsable(productData.categoryId);
+  if (productData.sku !== undefined) await assertSkuAvailable(productData.sku, id);
+  assertProductRules({ ...current, ...productData });
 
-  // Quando a promoção é removida (null) ou o preço muda, valida com o conjunto final.
-  assertProductRules({ ...current, ...data });
-
-  const product = await prisma.product.update({ where: { id }, data, include: productInclude });
+  const ids = await verifyRestrictionIds(restrictionIds);
+  if (ids === null) {
+    const product = await prisma.product.update({ where: { id }, data: productData, include: productInclude });
+    return serializeProduct(product);
+  }
+  const product = await prisma.$transaction(async (tx) => {
+    if (Object.keys(productData).length > 0) {
+      await tx.product.update({ where: { id }, data: productData });
+    }
+    await tx.productRestriction.deleteMany({ where: { productId: id } });
+    if (ids.length > 0) {
+      await tx.productRestriction.createMany({
+        data: ids.map((restrictionId) => ({ productId: id, restrictionId })),
+      });
+    }
+    return tx.product.findUnique({ where: { id }, include: productInclude });
+  });
   return serializeProduct(product);
 }
 
