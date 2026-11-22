@@ -3,6 +3,7 @@ const AppError = require('../utils/AppError');
 const { hashPassword, comparePassword } = require('../utils/password');
 const { parsePagination, buildPagination } = require('../utils/pagination');
 const { toPublicPath, removeStoredFile } = require('../utils/storage');
+const { toPreferenceDatabaseFields, toPreferenceResponse } = require('../utils/userPreferences');
 
 /** Campos do usuário que podem sair da API (nunca inclui passwordHash). */
 const userPublicSelect = {
@@ -57,6 +58,29 @@ async function updateProfileImage(userId, filename) {
   return user;
 }
 
+// ---------- Preferências do próprio cliente ----------
+
+async function getMyPreferences(userId) {
+  const record = await prisma.userPreference.findUnique({ where: { userId } });
+  return toPreferenceResponse(record);
+}
+
+async function updateMyPreferences(userId, input) {
+  const fields = toPreferenceDatabaseFields(input);
+  // upsert cria o registro para contas existentes, sem exigir novo cadastro.
+  const record = await prisma.userPreference.upsert({
+    where: { userId },
+    create: { userId, ...fields },
+    update: fields,
+  });
+  return toPreferenceResponse(record);
+}
+
+async function deleteMyPreferences(userId) {
+  await prisma.userPreference.deleteMany({ where: { userId } });
+  return toPreferenceResponse(null);
+}
+
 // ---------- Administração ----------
 
 async function listUsers({ search, role, isActive, ...query }) {
@@ -90,6 +114,9 @@ async function setUserActive(adminId, userId, isActive) {
 
 module.exports = {
   userPublicSelect,
+  getMyPreferences,
+  updateMyPreferences,
+  deleteMyPreferences,
   getUserById,
   updateProfile,
   changePassword,

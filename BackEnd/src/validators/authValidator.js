@@ -1,4 +1,5 @@
 const { body } = require('express-validator');
+const { preferenceRules } = require('./userPreferencesValidator');
 
 const PHONE_REGEX = /^[\d()+\-\s]{8,20}$/;
 
@@ -26,6 +27,7 @@ const registerRules = [
     .withMessage('E-mail muito longo.'),
   body('phone').optional({ values: 'falsy' }).isString().trim().matches(PHONE_REGEX).withMessage('Telefone inválido.'),
   passwordRules('password'),
+  ...preferenceRules,
 ];
 
 const loginRules = [

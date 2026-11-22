@@ -27,9 +27,21 @@ model User {
   orders              Order[]
   promotionUsages     PromotionUsage[]
   reviews             Review[]
+  preference          UserPreference?
 
   @@index([role])
   @@map("users")
+}
+
+model UserPreference {
+  userId              Int      @id
+  birthDate           DateTime? @db.Date
+  dietaryPreferences  String[] @default([])
+  notificationsOptIn  Boolean  @default(false)
+  updatedAt           DateTime @default(now()) @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "user_preferences_userId_fkey")
+
+  @@map("user_preferences")
 }
 
 model Address {
