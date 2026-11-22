@@ -62,11 +62,23 @@ const authenticateToken = asyncHandler(async (req, res, next) => {
 
   const user = await prisma.user.findUnique({
     where: { id: Number(payload.sub) },
-    select: { id: true, name: true, email: true, role: true, isActive: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true, passwordResetAt: true },
   });
 
   if (!user) throw AppError.unauthorized('Usuário do token não existe mais.');
   if (!user.isActive) throw AppError.forbidden('Conta desativada. Entre em contato com o suporte.');
+
+  // Revoga todos os JWT/cookies emitidos antes da última recuperação de senha.
+  // Tokens antigos têm apenas iat (segundos). Novos tokens carregam issuedAtMs.
+  if (user.passwordResetAt) {
+    const issuedMs = Number.isSafeInteger(payload.issuedAtMs)
+      ? payload.issuedAtMs
+      : (Number.isSafeInteger(payload.iat) ? payload.iat * 1000 : 0);
+    if (issuedMs <= user.passwordResetAt.getTime()) {
+      throw AppError.unauthorized('Senha alterada. Faça login novamente.');
+    }
+  }
+
 
   req.user = user;
   req.token = { jti: payload.jti, exp: payload.exp };

@@ -8,7 +8,7 @@ const env = require('../config/env');
  * A autorização real sempre consulta o usuário no banco (ver authMiddleware).
  */
 function signToken(user) {
-  return jwt.sign({ role: user.role }, env.jwt.secret, {
+  return jwt.sign({ role: user.role, issuedAtMs: Date.now() }, env.jwt.secret, {
     subject: String(user.id),
     expiresIn: env.jwt.expiresIn,
     jwtid: crypto.randomUUID(),

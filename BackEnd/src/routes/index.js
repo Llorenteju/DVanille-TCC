@@ -7,6 +7,8 @@ router.get('/health', healthController.checkHealth);
 
 router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));
+// Reservas públicas (com token de visitante) e reservas do cliente autenticado.
+router.use('/reservations', require('./reservationRoutes'));
 router.use('/addresses', require('./addressRoutes'));
 router.use('/products', require('./productRoutes'));
 router.use('/categories', require('./categoryRoutes'));
@@ -19,6 +21,8 @@ router.use('/promotions', require('./promotionRoutes'));
 router.use('/reviews', require('./reviewRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/loyalty', require('./loyaltyRoutes'));
+// Rotas exclusivas de administrador, sem alterar o adminRoutes existente.
+router.use('/admin/reservations', require('./reservationAdminRoutes'));
 router.use('/admin', require('./adminRoutes'));
 
 module.exports = router;

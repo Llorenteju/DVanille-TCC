@@ -12,6 +12,7 @@ model User {
   name                String               @db.VarChar(120)
   email               String               @unique @db.VarChar(191)
   passwordHash        String               @db.VarChar(255)
+  passwordResetAt     DateTime?            @db.Timestamptz(6)
   phone               String?              @db.VarChar(30)
   role                Role                 @default(CUSTOMER)
   profileImage        String?              @db.VarChar(255)
@@ -28,6 +29,8 @@ model User {
   promotionUsages     PromotionUsage[]
   reviews             Review[]
   preference          UserPreference?
+  reservations        Reservation[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([role])
   @@map("users")
@@ -42,6 +45,32 @@ model UserPreference {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "user_preferences_userId_fkey")
 
   @@map("user_preferences")
+}
+
+
+// Reservas (PostgreSQL/Supabase). A tabela foi criada previamente pelo SQL
+// DVanille_Criar_Tabela_Reservas_Supabase.sql. Sem migração automatica.
+// O indice UNIQUE parcial de reservas ativas permanece definido APENAS no banco.
+model Reservation {
+  id                Int      @id @default(autoincrement())
+  userId            Int?
+  name              String   @db.VarChar(120)
+  email             String   @db.VarChar(191)
+  phone             String   @db.VarChar(30)
+  reservationDate   DateTime @db.Date
+  reservationTime   DateTime @db.Time(6)
+  guests            Int
+  preferences       String   @default("") @db.Text
+  notes             String   @default("") @db.Text
+  status            String   @default("solicitada") @db.VarChar(15)
+  guestTokenHash    String?  @db.VarChar(64)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  user              User?    @relation(fields: [userId], references: [id], onDelete: Cascade, map: "reservations_userId_fkey")
+
+  @@index([userId, reservationDate(sort: Desc)], map: "reservations_user_date_idx")
+  @@index([reservationDate, reservationTime, status], map: "reservations_date_time_status_idx")
+  @@map("reservations")
 }
 
 model Address {
@@ -361,6 +390,21 @@ model LoyaltyTransaction {
   @@index([orderId], map: "loyalty_transactions_orderid_idx")
   @@index([userId, createdAt], map: "loyalty_transactions_userid_createdat_idx")
   @@map("loyalty_transactions")
+}
+
+// Token secreto de recuperação: somente SHA-256 é armazenado no banco.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique @db.VarChar(64)
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, map: "password_reset_tokens_userId_fkey")
+
+  @@index([userId, createdAt(sort: Desc)], map: "password_reset_tokens_user_created_idx")
+  @@index([expiresAt], map: "password_reset_tokens_expires_idx")
+  @@map("password_reset_tokens")
 }
 
 model RevokedToken {
