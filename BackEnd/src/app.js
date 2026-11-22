@@ -22,6 +22,7 @@ function buildCorsOptions() {
       if (!env.isProduction && env.corsOrigins.length === 0) return callback(null, true);
       return callback(new Error('CORS_ORIGIN_NOT_ALLOWED'));
     },
+    credentials: true, // Necessário para o cookie HttpOnly do Flutter Web.
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 600,

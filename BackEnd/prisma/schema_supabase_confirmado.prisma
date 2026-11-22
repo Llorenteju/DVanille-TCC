@@ -1,0 +1,448 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  Int                  @id @default(autoincrement())
+  name                String               @db.VarChar(120)
+  email               String               @unique @db.VarChar(191)
+  passwordHash        String               @db.VarChar(255)
+  phone               String?              @db.VarChar(30)
+  role                Role                 @default(CUSTOMER)
+  profileImage        String?              @db.VarChar(255)
+  isActive            Boolean              @default(true)
+  loyaltyPoints       Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  addresses           Address[]
+  cart                Cart?
+  favorites           Favorite[]
+  loyaltyTransactions LoyaltyTransaction[]
+  notifications       Notification[]
+  orders              Order[]
+  promotionUsages     PromotionUsage[]
+  reviews             Review[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Address {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  label         String   @db.VarChar(50)
+  recipientName String   @db.VarChar(120)
+  street        String   @db.VarChar(160)
+  number        String   @db.VarChar(20)
+  complement    String?  @db.VarChar(100)
+  neighborhood  String   @db.VarChar(100)
+  city          String   @db.VarChar(100)
+  state         String   @db.VarChar(2)
+  zipCode       String   @db.VarChar(9)
+  reference     String?  @db.VarChar(200)
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "addresses_userid_fkey")
+  orders        Order[]
+
+  @@index([userId], map: "addresses_userid_idx")
+  @@map("addresses")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(100)
+  slug        String    @unique @db.VarChar(120)
+  description String?   @db.VarChar(500)
+  image       String?   @db.VarChar(255)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id                    Int                  @id @default(autoincrement())
+  categoryId            Int
+  name                  String               @db.VarChar(160)
+  slug                  String               @unique @db.VarChar(180)
+  description           String?
+  price                 Decimal              @db.Decimal(10, 2)
+  promotionalPrice      Decimal?             @db.Decimal(10, 2)
+  image                 String?              @db.VarChar(255)
+  sku                   String?              @unique @db.VarChar(60)
+  stock                 Int                  @default(0)
+  isAvailable           Boolean              @default(true)
+  isActive              Boolean              @default(true)
+  isFeatured            Boolean              @default(false)
+  preparationTime       Int?
+  calories              Int?
+  carbohydrates         Decimal?             @db.Decimal(7, 2)
+  proteins              Decimal?             @db.Decimal(7, 2)
+  fats                  Decimal?             @db.Decimal(7, 2)
+  fiber                 Decimal?             @db.Decimal(7, 2)
+  sodium                Decimal?             @db.Decimal(9, 2)
+  ingredients           String?
+  allergens             String?
+  containsGluten        Boolean              @default(false)
+  containsLactose       Boolean              @default(false)
+  containsMilk          Boolean              @default(false)
+  containsEggs          Boolean              @default(false)
+  containsSoy           Boolean              @default(false)
+  containsPeanuts       Boolean              @default(false)
+  containsNuts          Boolean              @default(false)
+  containsSugar         Boolean              @default(false)
+  isVegetarian          Boolean              @default(false)
+  isVegan               Boolean              @default(false)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  cartItems             CartItem[]
+  favorites             Favorite[]
+  orderItems            OrderItem[]
+  restricoesAlimentares ProductRestriction[]
+  category              Category             @relation(fields: [categoryId], references: [id], map: "products_categoryid_fkey")
+  reviews               Review[]
+
+  @@index([name])
+  @@index([categoryId], map: "products_categoryid_idx")
+  @@index([isActive, isAvailable], map: "products_isactive_isavailable_idx")
+  @@index([isFeatured], map: "products_isfeatured_idx")
+  @@map("products")
+}
+
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade, map: "favorites_productid_fkey")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "favorites_userid_fkey")
+
+  @@unique([userId, productId], map: "favorites_userid_productid_key")
+  @@index([productId], map: "favorites_productid_idx")
+  @@map("favorites")
+}
+
+model Cart {
+  id          Int        @id @default(autoincrement())
+  userId      Int        @unique
+  promotionId Int?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       CartItem[]
+  promotion   Promotion? @relation(fields: [promotionId], references: [id], map: "carts_promotionid_fkey")
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade, map: "carts_userid_fkey")
+
+  @@index([promotionId], map: "carts_promotionid_idx")
+  @@map("carts")
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int
+  productId Int
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade, map: "cart_items_cartid_fkey")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade, map: "cart_items_productid_fkey")
+
+  @@unique([cartId, productId], map: "cart_items_cartid_productid_key")
+  @@index([productId], map: "cart_items_productid_idx")
+  @@map("cart_items")
+}
+
+model Order {
+  id              Int                  @id @default(autoincrement())
+  orderNumber     String               @unique @db.VarChar(30)
+  userId          Int
+  addressId       Int?
+  deliveryAddress Json?
+  promotionId     Int?
+  couponCode      String?              @db.VarChar(50)
+  subtotal        Decimal              @db.Decimal(10, 2)
+  discount        Decimal              @default(0) @db.Decimal(10, 2)
+  deliveryFee     Decimal              @default(0) @db.Decimal(10, 2)
+  total           Decimal              @db.Decimal(10, 2)
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus        @default(PENDING)
+  orderStatus     OrderStatus          @default(PENDING)
+  deliveryType    DeliveryType
+  notes           String?              @db.VarChar(500)
+  cancelledAt     DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  items           OrderItem[]
+  statusHistory   OrderStatusHistory[]
+  address         Address?             @relation(fields: [addressId], references: [id], map: "orders_addressid_fkey")
+  promotion       Promotion?           @relation(fields: [promotionId], references: [id], map: "orders_promotionid_fkey")
+  user            User                 @relation(fields: [userId], references: [id], map: "orders_userid_fkey")
+  payment         Payment?
+  promotionUsage  PromotionUsage?
+  reviews         Review[]
+
+  @@index([createdAt], map: "orders_createdat_idx")
+  @@index([orderStatus], map: "orders_orderstatus_idx")
+  @@index([paymentStatus], map: "orders_paymentstatus_idx")
+  @@index([userId, createdAt], map: "orders_userid_createdat_idx")
+  @@map("orders")
+}
+
+model OrderItem {
+  id          Int     @id @default(autoincrement())
+  orderId     Int
+  productId   Int
+  productName String  @db.VarChar(160)
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  subtotal    Decimal @db.Decimal(10, 2)
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade, map: "order_items_orderid_fkey")
+  product     Product @relation(fields: [productId], references: [id], map: "order_items_productid_fkey")
+
+  @@index([orderId], map: "order_items_orderid_idx")
+  @@index([productId], map: "order_items_productid_idx")
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        Int         @id @default(autoincrement())
+  orderId   Int
+  status    OrderStatus
+  note      String?     @db.VarChar(255)
+  createdAt DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade, map: "order_status_history_orderid_fkey")
+
+  @@index([orderId], map: "order_status_history_orderid_idx")
+  @@map("order_status_history")
+}
+
+model Payment {
+  id            Int           @id @default(autoincrement())
+  orderId       Int           @unique
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amount        Decimal       @db.Decimal(10, 2)
+  provider      String        @default("simulated") @db.VarChar(40)
+  transactionId String?       @unique @db.VarChar(80)
+  pixCode       String?
+  cardBrand     String?       @db.VarChar(30)
+  cardLast4     String?       @db.VarChar(4)
+  failureReason String?       @db.VarChar(255)
+  paidAt        DateTime?
+  refundedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade, map: "payments_orderid_fkey")
+
+  @@index([status])
+  @@map("payments")
+}
+
+model Promotion {
+  id            Int              @id @default(autoincrement())
+  name          String           @db.VarChar(120)
+  description   String?          @db.VarChar(500)
+  code          String           @unique @db.VarChar(50)
+  type          DiscountType
+  value         Decimal          @db.Decimal(10, 2)
+  startsAt      DateTime
+  endsAt        DateTime
+  usageLimit    Int?
+  usedCount     Int              @default(0)
+  perUserLimit  Int              @default(1)
+  minOrderValue Decimal?         @db.Decimal(10, 2)
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  carts         Cart[]
+  orders        Order[]
+  usages        PromotionUsage[]
+
+  @@index([isActive, startsAt, endsAt], map: "promotions_isactive_startsat_endsat_idx")
+  @@map("promotions")
+}
+
+model PromotionUsage {
+  id             Int       @id @default(autoincrement())
+  promotionId    Int
+  userId         Int
+  orderId        Int       @unique
+  discountAmount Decimal   @db.Decimal(10, 2)
+  createdAt      DateTime  @default(now())
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, map: "promotion_usages_orderid_fkey")
+  promotion      Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade, map: "promotion_usages_promotionid_fkey")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade, map: "promotion_usages_userid_fkey")
+
+  @@index([promotionId, userId], map: "promotion_usages_promotionid_userid_idx")
+  @@map("promotion_usages")
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+  orderId   Int
+  rating    Int
+  comment   String?  @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade, map: "reviews_orderid_fkey")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade, map: "reviews_productid_fkey")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "reviews_userid_fkey")
+
+  @@unique([userId, productId, orderId], map: "reviews_userid_productid_orderid_key")
+  @@index([productId], map: "reviews_productid_idx")
+  @@map("reviews")
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  title     String           @db.VarChar(160)
+  message   String           @db.VarChar(500)
+  type      NotificationType @default(SYSTEM)
+  isRead    Boolean          @default(false)
+  data      Json?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade, map: "notifications_userid_fkey")
+
+  @@index([userId, createdAt], map: "notifications_userid_createdat_idx")
+  @@index([userId, isRead], map: "notifications_userid_isread_idx")
+  @@map("notifications")
+}
+
+model LoyaltyReward {
+  id           Int                  @id @default(autoincrement())
+  name         String               @db.VarChar(120)
+  description  String?              @db.VarChar(500)
+  pointsCost   Int
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  transactions LoyaltyTransaction[]
+
+  @@map("loyalty_rewards")
+}
+
+model LoyaltyTransaction {
+  id           Int                    @id @default(autoincrement())
+  userId       Int
+  orderId      Int?
+  rewardId     Int?
+  type         LoyaltyTransactionType
+  points       Int
+  balanceAfter Int
+  description  String                 @db.VarChar(255)
+  createdAt    DateTime               @default(now())
+  reward       LoyaltyReward?         @relation(fields: [rewardId], references: [id], map: "loyalty_transactions_rewardid_fkey")
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade, map: "loyalty_transactions_userid_fkey")
+
+  @@index([orderId], map: "loyalty_transactions_orderid_idx")
+  @@index([userId, createdAt], map: "loyalty_transactions_userid_createdat_idx")
+  @@map("loyalty_transactions")
+}
+
+model RevokedToken {
+  id        Int      @id @default(autoincrement())
+  jti       String   @unique @db.VarChar(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt], map: "revoked_tokens_expiresat_idx")
+  @@map("revoked_tokens")
+}
+
+model DietaryRestriction {
+  id          BigInt               @id @default(autoincrement())
+  name        String               @unique @db.VarChar(100)
+  slug        String               @unique @db.VarChar(120)
+  description String?
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @default(now()) @updatedAt
+  products    ProductRestriction[]
+
+  @@map("dietary_restrictions")
+}
+
+model ProductRestriction {
+  productId     Int
+  restrictionId BigInt
+  createdAt     DateTime           @default(now())
+  product       Product            @relation(fields: [productId], references: [id], onDelete: Cascade, map: "product_restrictions_product_fkey")
+  restriction   DietaryRestriction @relation(fields: [restrictionId], references: [id], onDelete: Cascade, map: "product_restrictions_restriction_fkey")
+
+  @@id([productId, restrictionId])
+  @@index([restrictionId], map: "product_restrictions_restrictionid_idx")
+  @@map("product_restrictions")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryType {
+  DELIVERY
+  PICKUP
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  REFUNDED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum NotificationType {
+  ORDER_CREATED
+  ORDER_CONFIRMED
+  ORDER_PREPARING
+  ORDER_READY
+  ORDER_OUT_FOR_DELIVERY
+  ORDER_DELIVERED
+  ORDER_CANCELLED
+  PAYMENT
+  PROMOTION
+  REWARD
+  SYSTEM
+}
+
+enum LoyaltyTransactionType {
+  EARNED
+  REDEEMED
+  ADJUSTED
+}
+
+

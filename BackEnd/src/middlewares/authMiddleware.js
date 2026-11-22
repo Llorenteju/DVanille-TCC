@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const { verifyToken } = require('../utils/jwt');
+const env = require('../config/env');
 
 function extractBearerToken(req) {
   const header = req.headers.authorization || '';
@@ -10,14 +11,43 @@ function extractBearerToken(req) {
   return token;
 }
 
+/** Extrai somente o cookie de sessão estabelecido pela API, sem bibliotecas extras. */
+function extractCookieToken(req) {
+  const cookieHeader = req.headers.cookie || '';
+  for (const item of cookieHeader.split(';')) {
+    const parte = item.trim();
+    const separador = parte.indexOf('=');
+    if (separador < 0) continue;
+    if (parte.slice(0, separador) !== 'dvanille_session') continue;
+    const valor = parte.slice(separador + 1);
+    try {
+      return decodeURIComponent(valor);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 /**
  * Exige um JWT válido (Authorization: Bearer <token>).
  * Confere se o token não foi encerrado (logout) e recarrega o usuário do banco,
  * de modo que mudanças de papel/desativação valem imediatamente.
  */
 const authenticateToken = asyncHandler(async (req, res, next) => {
-  const token = extractBearerToken(req);
+  const bearer = extractBearerToken(req);
+  const token = bearer || extractCookieToken(req);
   if (!token) throw AppError.unauthorized('Token de autenticação não informado.');
+
+  // Proteção CSRF: solicitações com cookie não podem executar ações
+  // de escrita a partir de origens não autorizadas. Apps mobile com Bearer
+  // continuam funcionando sem o cabeçalho Origin.
+  if (!bearer && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    const origin = req.get('Origin');
+    if (!origin || !env.corsOrigins.includes(origin)) {
+      throw AppError.forbidden('Origem não autorizada para esta sessão.');
+    }
+  }
 
   let payload;
   try {

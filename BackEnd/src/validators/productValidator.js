@@ -5,6 +5,7 @@ const PRODUCT_FIELDS = [
   'categoryId',
   'name',
   'description',
+  'image',
   'price',
   'promotionalPrice',
   'sku',
@@ -65,6 +66,16 @@ const productFieldRules = (required) => {
       .withMessage('Preço promocional deve ser maior que zero.')
       .toFloat(),
     body('description').optional({ values: 'null' }).isString().trim().isLength({ max: 5000 }).withMessage('Descrição muito longa.'),
+    body('image').optional({ values: 'null' }).custom((valor) => {
+      if (typeof valor !== 'string' || valor.length > 255) return false;
+      if (valor === '') return true;
+      try {
+        const url = new URL(valor);
+        return url.protocol === 'https:' && Boolean(url.hostname);
+      } catch (_) {
+        return false;
+      }
+    }).withMessage('Imagem deve ser uma URL HTTPS com até 255 caracteres.'),
     body('sku').optional({ values: 'null' }).isString().trim().isLength({ min: 1, max: 60 }).withMessage('SKU deve ter até 60 caracteres.'),
     body('stock').optional().isInt({ min: 0, max: 1000000 }).withMessage('Estoque deve ser um inteiro >= 0.').toInt(),
     body('preparationTime').optional({ values: 'null' }).isInt({ min: 0, max: 1440 }).withMessage('Tempo de preparo inválido (minutos).').toInt(),
