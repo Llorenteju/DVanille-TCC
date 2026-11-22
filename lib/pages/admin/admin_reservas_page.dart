@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../app/app.dart';
 import '../../models/reserva.dart';
-import '../../services/app_state.dart';
+import '../../services/reserva_api_service.dart';
+import '../../services/auth_api_service.dart' show DVanilleApiException;
 import '../../services/navigation.dart';
 import '../../theme/app_theme.dart';
 import 'admin_shell.dart';
@@ -27,6 +28,10 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
   final _buscaController = TextEditingController();
   String _filtroStatus = 'todos';
   String _filtroData = 'todas';
+  List<Reserva> _reservas = [];
+  bool _carregando = true;
+  bool _alterandoStatus = false;
+  String? _erro;
   bool _mostrarHistorico = false;
 
   // Calculado sob demanda: nunca depende de uma inicialização tardia.
@@ -40,6 +45,7 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
   void initState() {
     super.initState();
     _ultimoDiaExibido = _hoje;
+    _carregar();
 
     // Confere a virada do dia mesmo com a página aberta.
     // A reserva de ontem passa a aparecer no histórico automaticamente.
@@ -58,6 +64,32 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
     _relogio?.cancel();
     _buscaController.dispose();
     super.dispose();
+  }
+
+  Future<void> _carregar() async {
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+    try {
+      final reservas = await ReservaApiService.instance.listarAdmin();
+      if (!mounted) return;
+      setState(() => _reservas = reservas);
+    } on DVanilleApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _reservas = [];
+        _erro = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _reservas = [];
+        _erro = 'Não foi possível consultar as reservas.';
+      });
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
   }
 
   bool get _escuro => Theme.of(context).brightness == Brightness.dark;
@@ -95,7 +127,9 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
 
   bool _passou(Reserva reserva) {
     final data = _dataReserva(reserva);
-    return data != null && data.isBefore(_hoje);
+    return reserva.status == 'cancelada' ||
+        reserva.status == 'finalizada' ||
+        (data != null && data.isBefore(_hoje));
   }
 
   String _nomeStatus(String status) {
@@ -147,45 +181,57 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
     );
   }
 
-  void _atualizarStatus(Reserva reserva, String novoStatus) {
-    if (reserva.status == novoStatus) return;
-    AppState.instance.atualizarStatusReserva(reserva.id, novoStatus);
-    showToast('Status da reserva atualizado!', 'agenda.svg');
+  Future<void> _atualizarStatus(Reserva reserva, String novoStatus) async {
+    if (_alterandoStatus || reserva.status == novoStatus) return;
+    setState(() => _alterandoStatus = true);
+    try {
+      await ReservaApiService.instance
+          .alterarStatusAdmin(reserva.id, novoStatus);
+      if (!mounted) return;
+      showToast('Status da reserva atualizado!', 'agenda.svg');
+      await _carregar();
+    } on DVanilleApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível atualizar a reserva.')),
+      );
+    } finally {
+      if (mounted) setState(() => _alterandoStatus = false);
+    }
   }
 
   Widget _menuStatus(Reserva reserva) {
+    // Estados terminais são imutáveis; não oferecer opções não aceitas pela API.
+    final opcoes = switch (reserva.status) {
+      'solicitada' => ['confirmada', 'cancelada'],
+      'confirmada' => ['finalizada', 'cancelada'],
+      _ => <String>[],
+    };
+    if (opcoes.isEmpty) return _etiquetaStatus(reserva.status);
     return PopupMenuButton<String>(
+      enabled: !_alterandoStatus,
       tooltip: 'Alterar status da reserva',
       onSelected: (novoStatus) => _atualizarStatus(reserva, novoStatus),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
-      itemBuilder: (_) => _statusDisponiveis.map((status) {
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      itemBuilder: (_) => opcoes.map((status) {
         return PopupMenuItem<String>(
           value: status,
-          child: Row(
-            children: [
-              Icon(
-                reserva.status == status
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                size: 18,
-                color: _corStatus(status),
-              ),
-              const SizedBox(width: 10),
-              Text(_nomeStatus(status)),
-            ],
-          ),
+          child: Row(children: [
+            Icon(Icons.circle_outlined, size: 18, color: _corStatus(status)),
+            const SizedBox(width: 10),
+            Text(_nomeStatus(status)),
+          ]),
         );
       }).toList(),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _etiquetaStatus(reserva.status),
-          const SizedBox(width: 3),
-          Icon(Icons.keyboard_arrow_down_rounded, color: _secundaria, size: 20),
-        ],
-      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _etiquetaStatus(reserva.status),
+        const SizedBox(width: 3),
+        Icon(Icons.keyboard_arrow_down_rounded, color: _secundaria, size: 20),
+      ]),
     );
   }
 
@@ -744,7 +790,7 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
           existemReservas
               ? 'Experimente alterar a pesquisa ou os filtros.'
               : (_mostrarHistorico
-                  ? 'As reservas aparecem aqui a partir do dia seguinte à data marcada.'
+                  ? 'Reservas canceladas, finalizadas e datas anteriores aparecem aqui.'
                   : 'As reservas de hoje e as futuras aparecerão aqui.'),
           textAlign: TextAlign.center,
           style: TextStyle(color: _secundaria, fontSize: 13),
@@ -763,12 +809,10 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = AppState.instance;
-    return ListenableBuilder(
-      listenable: state,
-      builder: (context, _) {
-        final atuais = state.reservas.where((r) => !_passou(r)).toList();
-        final historico = state.reservas.where(_passou).toList();
+    return Builder(
+      builder: (context) {
+        final atuais = _reservas.where((r) => !_passou(r)).toList();
+        final historico = _reservas.where(_passou).toList();
         final todasDaAba = _mostrarHistorico ? historico : atuais;
         final filtradas = _filtrar(todasDaAba);
 
@@ -783,36 +827,58 @@ class _AdminReservasPageState extends State<AdminReservasPage> {
                 Text(
                     'Acompanhe as reservas da cafeteria e consulte as anteriores.',
                     style: TextStyle(color: _secundaria, fontSize: 14)),
-                const SizedBox(height: 23),
-                _resumo(largura, atuais),
-                const SizedBox(height: 25),
-                _abas(atuais.length, historico.length),
-                const SizedBox(height: 23),
-                Text(
-                  _mostrarHistorico
-                      ? 'Reservas de datas anteriores a hoje'
-                      : 'Reservas de hoje e dos próximos dias',
-                  style: AppTheme.display(size: 23, color: _texto),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _carregando ? null : _carregar,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Atualizar reservas'),
+                  ),
                 ),
+                if (_carregando) const LinearProgressIndicator(),
+                if (_erro != null) ...[
+                  Text(_erro!,
+                      style: const TextStyle(color: Color(0xFFB65755))),
+                  TextButton(
+                      onPressed: _carregar,
+                      child: const Text('Tentar novamente')),
+                ],
+                const SizedBox(height: 23),
+                if (!_carregando && _erro == null) _resumo(largura, _reservas),
+                const SizedBox(height: 25),
+                if (!_carregando && _erro == null)
+                  _abas(atuais.length, historico.length),
+                const SizedBox(height: 23),
+                if (!_carregando && _erro == null)
+                  Text(
+                    _mostrarHistorico
+                        ? 'Reservas anteriores, finalizadas e canceladas'
+                        : 'Reservas de hoje e dos próximos dias',
+                    style: AppTheme.display(size: 23, color: _texto),
+                  ),
                 const SizedBox(height: 16),
-                _filtros(largura),
+                if (!_carregando && _erro == null) _filtros(largura),
                 const SizedBox(height: 15),
-                Row(children: [
-                  Icon(
-                      _mostrarHistorico
-                          ? Icons.history_rounded
-                          : Icons.event_note_outlined,
-                      size: 19,
-                      color: _secundaria),
-                  const SizedBox(width: 8),
-                  Text('${filtradas.length} de ${todasDaAba.length} reservas',
-                      style: TextStyle(
-                          color: _secundaria,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600)),
-                ]),
+                if (!_carregando && _erro == null)
+                  Row(children: [
+                    Icon(
+                        _mostrarHistorico
+                            ? Icons.history_rounded
+                            : Icons.event_note_outlined,
+                        size: 19,
+                        color: _secundaria),
+                    const SizedBox(width: 8),
+                    Text('${filtradas.length} de ${todasDaAba.length} reservas',
+                        style: TextStyle(
+                            color: _secundaria,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ]),
                 const SizedBox(height: 15),
-                if (filtradas.isEmpty)
+                if (_carregando || _erro != null)
+                  const SizedBox.shrink()
+                else if (filtradas.isEmpty)
                   _vazio(todasDaAba.isNotEmpty)
                 else if (largura >= 760)
                   _tabela(filtradas)

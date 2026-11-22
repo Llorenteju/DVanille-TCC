@@ -3,23 +3,63 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../app/app.dart';
 import '../../models/reserva.dart';
-import '../../services/app_state.dart';
+import '../../services/reserva_api_service.dart';
+import '../../services/auth_api_service.dart' show DVanilleApiException;
 import '../../services/navigation.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/page_shell.dart';
 import '../../widgets/ui_kit.dart';
 
-class MinhasReservasPage extends StatelessWidget {
+class MinhasReservasPage extends StatefulWidget {
   const MinhasReservasPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final state = AppState.instance;
+  State<MinhasReservasPage> createState() => _MinhasReservasPageState();
+}
 
+class _MinhasReservasPageState extends State<MinhasReservasPage> {
+  List<Reserva> _reservas = [];
+  bool _carregando = true;
+  bool _cancelando = false;
+  String? _erro;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregar();
+  }
+
+  Future<void> _carregar() async {
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+    try {
+      final reservas = await ReservaApiService.instance.listarMinhas();
+      if (!mounted) return;
+      setState(() => _reservas = reservas);
+    } on DVanilleApiException catch (erro) {
+      if (!mounted) return;
+      setState(() {
+        _reservas = [];
+        _erro = erro.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _reservas = [];
+        _erro = 'Não foi possível consultar suas reservas.';
+      });
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return PageShell(
-      child: ListenableBuilder(
-        listenable: state,
-        builder: (context, _) {
+      child: Builder(
+        builder: (context) {
           final isDark = Theme.of(context).brightness == Brightness.dark;
 
           final corTexto =
@@ -28,7 +68,7 @@ class MinhasReservasPage extends StatelessWidget {
           final corTextoSecundario =
               isDark ? DVanilleColors.darkTextSecondary : DVanilleColors.taupe;
 
-          final reservas = state.minhasReservas;
+          final reservas = _reservas;
 
           return Column(
             children: [
@@ -60,26 +100,44 @@ class MinhasReservasPage extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 50),
+              const SizedBox(height: 20),
+              TextButton.icon(
+                onPressed: _carregando ? null : _carregar,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Atualizar reservas'),
+              ),
+              const SizedBox(height: 25),
               ContentWidth(
                 maxWidth: 850,
-                child: reservas.isEmpty
-                    ? _vazio(context, isDark, corTexto, corTextoSecundario)
-                    : Column(
-                        children: [
-                          for (final reserva in reservas)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 20),
-                              child: _cartaoReserva(
-                                context,
-                                reserva,
-                                isDark,
-                                corTexto,
-                                corTextoSecundario,
+                child: _carregando
+                    ? const Center(child: CircularProgressIndicator())
+                    : _erro != null
+                        ? Column(children: [
+                            Text(_erro!, textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                                onPressed: _carregar,
+                                child: const Text('Tentar novamente')),
+                          ])
+                        : reservas.isEmpty
+                            ? _vazio(
+                                context, isDark, corTexto, corTextoSecundario)
+                            : Column(
+                                children: [
+                                  for (final reserva in reservas)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 20),
+                                      child: _cartaoReserva(
+                                        context,
+                                        reserva,
+                                        isDark,
+                                        corTexto,
+                                        corTextoSecundario,
+                                      ),
+                                    ),
+                                ],
                               ),
-                            ),
-                        ],
-                      ),
               ),
             ],
           );
@@ -161,8 +219,7 @@ class MinhasReservasPage extends StatelessWidget {
   ) {
     final status = reserva.status.toLowerCase();
 
-    final podeCancelar =
-        status != 'cancelada' && status != 'concluida' && status != 'concluída';
+    final podeCancelar = status == 'solicitada' || status == 'confirmada';
 
     final corBorda = isDark ? DVanilleColors.darkBorder : DVanilleColors.line;
 
@@ -288,12 +345,14 @@ class MinhasReservasPage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () {
-                  _confirmarCancelamento(
-                    context,
-                    reserva,
-                  );
-                },
+                onPressed: _cancelando
+                    ? null
+                    : () {
+                        _confirmarCancelamento(
+                          context,
+                          reserva,
+                        );
+                      },
                 icon: const Icon(
                   Icons.cancel_outlined,
                   size: 19,
@@ -363,15 +422,26 @@ class MinhasReservasPage extends StatelessWidget {
       return;
     }
 
-    AppState.instance.atualizarStatusReserva(
-      reserva.id,
-      'cancelada',
-    );
-
-    showToast(
-      'Reserva cancelada com sucesso.',
-      'agenda.svg',
-    );
+    if (_cancelando) return;
+    setState(() => _cancelando = true);
+    try {
+      await ReservaApiService.instance.cancelarMinha(reserva.id);
+      if (!mounted) return;
+      showToast('Reserva cancelada com sucesso.', 'agenda.svg');
+      await _carregar();
+    } on DVanilleApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível cancelar sua reserva.')),
+      );
+    } finally {
+      if (mounted) setState(() => _cancelando = false);
+    }
   }
 
   Widget _linha(
@@ -439,6 +509,7 @@ class MinhasReservasPage extends StatelessWidget {
       case 'cancelada':
         return 'Reserva cancelada';
 
+      case 'finalizada':
       case 'concluida':
       case 'concluída':
         return 'Reserva concluída';
@@ -456,6 +527,7 @@ class MinhasReservasPage extends StatelessWidget {
       case 'cancelada':
         return isDark ? const Color(0xFFE69A9A) : const Color(0xFF9B5555);
 
+      case 'finalizada':
       case 'concluida':
       case 'concluída':
         return isDark ? DVanilleColors.darkTextSecondary : DVanilleColors.taupe;

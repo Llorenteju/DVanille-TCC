@@ -52,10 +52,10 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
     final link = _extrairTokenDoLink(Uri.base);
     _abertoPorLink = widget.abertoPorLink || link.$1;
     final candidato = widget.tokenInicial ?? link.$2;
-    _token =
-        candidato != null && RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(candidato)
-            ? candidato
-            : null;
+    _token = candidato != null &&
+            RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(candidato)
+        ? candidato
+        : null;
   }
 
   /// Retém apenas o token na memória, sem registrá-lo no Console.
@@ -71,8 +71,8 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
             : uri.queryParameters['token'])
         ?.trim();
     // 32 bytes em Base64 URL sem padding = 43 caracteres.
-    final valido =
-        valor != null && RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(valor);
+    final valido = valor != null &&
+        RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(valor);
     return (existe, valido ? valor : null);
   }
 
@@ -148,8 +148,7 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
     String? erroConfirmar;
 
     // As mesmas regras do passwordRules do backend Node.js.
-    if (senha.length < 8 ||
-        senha.length > 72 ||
+    if (senha.length < 8 || senha.length > 72 ||
         !RegExp(r'[A-Za-z]').hasMatch(senha) ||
         !RegExp(r'\d').hasMatch(senha)) {
       erroSenha = 'Use de 8 a 72 caracteres, com uma letra e um número.';
@@ -188,8 +187,8 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
       setState(() => erroGeral = e.message);
     } catch (_) {
       if (!mounted) return;
-      setState(() =>
-          erroGeral = 'Não foi possível redefinir a senha. Tente novamente.');
+      setState(() => erroGeral =
+          'Não foi possível redefinir a senha. Tente novamente.');
     } finally {
       if (mounted) setState(() => _redefinindo = false);
     }
@@ -354,8 +353,7 @@ class _RecuperarSenhaPageState extends State<RecuperarSenhaPage> {
                 tooltip: mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha',
                 onPressed: _redefinindo
                     ? null
-                    : () =>
-                        setState(() => mostrarNovaSenha = !mostrarNovaSenha),
+                    : () => setState(() => mostrarNovaSenha = !mostrarNovaSenha),
                 icon: Icon(mostrarNovaSenha
                     ? Icons.visibility_off_outlined
                     : Icons.visibility_outlined),

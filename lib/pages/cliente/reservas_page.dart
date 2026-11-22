@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../app/app.dart';
 import '../../data/mock_data.dart';
 import '../../services/app_state.dart';
+import '../../services/reserva_api_service.dart';
+import '../../services/auth_api_service.dart' show DVanilleApiException;
+import '../../models/reserva.dart';
 import '../../services/navigation.dart';
 import '../../widgets/page_shell.dart';
 import '../../widgets/ui_kit.dart';
@@ -32,6 +35,7 @@ class _ReservasPageState extends State<ReservasPage> {
   String horario = horariosReserva.first;
 
   bool tentouEnviar = false;
+  bool _salvando = false;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
 
@@ -182,7 +186,7 @@ class _ReservasPageState extends State<ReservasPage> {
     return null;
   }
 
-  void _solicitar() {
+  Future<void> _solicitar() async {
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -228,27 +232,45 @@ class _ReservasPageState extends State<ReservasPage> {
       return;
     }
 
-    final reserva = state.criarReserva(
-      nome: nome.text.trim(),
-      email: email.text.trim(),
-      telefone: telefone.text.trim(),
-      data: _formatarData(data!),
-      horario: horario,
-      pessoas: quantidade,
-      preferencias: preferencias.text.trim(),
-      observacoes: observacoes.text.trim(),
-    );
-
-    showToast(
-      'Reserva realizada com sucesso!',
-      'agenda.svg',
-    );
-
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      Routes.reservaConfirmada,
-      (rota) => false,
-      arguments: reserva.id,
-    );
+    if (_salvando) return;
+    if (!state.podeFazerReserva) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppState.avisoContaAdministrativa)),
+      );
+      return;
+    }
+    setState(() => _salvando = true);
+    try {
+      final Reserva reserva = await ReservaApiService.instance.criar(
+        nome: nome.text.trim(),
+        email: email.text.trim(),
+        telefone: telefone.text.trim(),
+        data: _formatarData(data!),
+        horario: horario,
+        pessoas: quantidade,
+        preferencias: preferencias.text.trim(),
+        observacoes: observacoes.text.trim(),
+      );
+      if (!mounted) return;
+      showToast('Solicitação de reserva enviada!', 'agenda.svg');
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        Routes.reservaConfirmada,
+        (rota) => false,
+        arguments: reserva,
+      );
+    } on DVanilleApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível enviar a reserva. Tente novamente.')),
+      );
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
   }
 
   String _formatarData(DateTime data) {
@@ -318,7 +340,16 @@ class _ReservasPageState extends State<ReservasPage> {
             ),
           ),
 
-          const SizedBox(height: 41),
+          const SizedBox(height: 16),
+          ContentWidth(
+            maxWidth: 760,
+            child: Text(
+              'Sua reserva será enviada para análise. O horário só estará confirmado após aprovação da cafeteria.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: corTextoSecundario, fontSize: 13),
+            ),
+          ),
+          const SizedBox(height: 25),
 
           // FORMULÁRIO
 
@@ -490,10 +521,8 @@ class _ReservasPageState extends State<ReservasPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: _solicitar,
-                        child: const Text(
-                          'Solicitar reserva',
-                        ),
+                        onPressed: _salvando ? null : _solicitar,
+                        child: Text(_salvando ? 'Enviando...' : 'Solicitar reserva'),
                       ),
                     ),
                   ],

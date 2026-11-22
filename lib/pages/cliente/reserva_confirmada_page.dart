@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app.dart';
-import '../../services/app_state.dart';
+import '../../models/reserva.dart';
+import 'package:flutter/services.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/page_shell.dart';
 import '../../widgets/ui_kit.dart';
@@ -12,11 +13,10 @@ class ReservaConfirmadaPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final id = ModalRoute.of(context)?.settings.arguments;
-    final state = AppState.instance;
-
-    final reserva = state.reservaPorId(id is String ? id : null) ??
-        (state.reservas.isEmpty ? null : state.reservas.last);
+    // Somente a reserva retornada pela API pode ser exibida aqui.
+    // Não utilizar dados locais ou a última reserva de outro cliente.
+    final argumento = ModalRoute.of(context)?.settings.arguments;
+    final Reserva? reserva = argumento is Reserva ? argumento : null;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -98,6 +98,26 @@ class ReservaConfirmadaPage extends StatelessWidget {
                 // STATUS
 
                 StatusPill(reserva.status),
+                const SizedBox(height: 8),
+                const Text('Aguarde a confirmação da cafeteria.', textAlign: TextAlign.center),
+                if (reserva.guestAccessToken != null) ...[
+                  const SizedBox(height: 18),
+                  InfoBox(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      children: [
+                        const Text('Reserva de visitante: guarde o número e o código de acesso em local seguro. O código não será exibido novamente.'),
+                        const SizedBox(height: 8),
+                        SelectableText(reserva.guestAccessToken!),
+                        TextButton.icon(
+                          onPressed: () => Clipboard.setData(ClipboardData(text: reserva.guestAccessToken!)),
+                          icon: const Icon(Icons.copy_outlined, size: 18),
+                          label: const Text('Copiar código de acesso'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 26),
 
