@@ -31,16 +31,19 @@ class ProdutoApiService {
 
       const limite = 100;
       for (var pagina = 1; pagina <= 20; pagina++) {
-        final resposta = await cliente.get(
-          _rota('products', {'page': '$pagina', 'limit': '$limite'}),
-        ).timeout(const Duration(seconds: 15));
+        final resposta = await cliente
+            .get(
+              _rota('products', {'page': '$pagina', 'limit': '$limite'}),
+            )
+            .timeout(const Duration(seconds: 15));
         if (resposta.statusCode < 200 || resposta.statusCode >= 300) {
           throw CatalogoApiException(
             'A consulta de produtos retornou HTTP ${resposta.statusCode}.',
           );
         }
         final body = jsonDecode(utf8.decode(resposta.bodyBytes));
-        final registros = _lista(body, chaves: const ['products', 'items', 'results']);
+        final registros =
+            _lista(body, chaves: const ['products', 'items', 'results']);
         final paginacao = _paginacao(body);
         if (registros.isEmpty) break;
         var novos = 0;
@@ -54,7 +57,8 @@ class ProdutoApiService {
         // Não repetir infinitamente caso a API ignore page.
         if (novos == 0) break;
         final totalPaginas = _inteiro(paginacao['totalPages'] ??
-            paginacao['total_pages'] ?? paginacao['pages'] ??
+            paginacao['total_pages'] ??
+            paginacao['pages'] ??
             paginacao['lastPage']);
         if (totalPaginas != null) {
           if (pagina >= totalPaginas) break;
@@ -72,7 +76,8 @@ class ProdutoApiService {
         if (produto.categoria == 'categoria-nao-mapeada') {
           final categoria = dado['category'];
           categoriasSemCorrespondencia.add(
-            categoria is Map ? '${categoria['slug'] ?? categoria['name'] ?? categoria['id']}'
+            categoria is Map
+                ? '${categoria['slug'] ?? categoria['name'] ?? categoria['id']}'
                 : '${dado['categorySlug'] ?? dado['categoryId'] ?? categoria ?? 'desconhecida'}',
           );
         }
@@ -101,7 +106,8 @@ class ProdutoApiService {
 
   Future<Map<int, String>> _categorias(http.Client cliente) async {
     try {
-      final res = await cliente.get(_rota('categories'))
+      final res = await cliente
+          .get(_rota('categories'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return {};
       final resultado = <int, String>{};
@@ -119,9 +125,8 @@ class ProdutoApiService {
 
   /// Formatos aceitos: lista simples; { data: [...] };
   /// { data: { products: [...] } }; { products: [...] }.
-  static List<Map<String, dynamic>> _lista(
-    dynamic body, {required List<String> chaves}
-  ) {
+  static List<Map<String, dynamic>> _lista(dynamic body,
+      {required List<String> chaves}) {
     dynamic atual = body;
     for (var i = 0; i < 4 && atual is Map; i++) {
       final mapa = Map<String, dynamic>.from(atual);
@@ -138,12 +143,16 @@ class ProdutoApiService {
     if (atual is! List) {
       throw CatalogoApiException('Formato inesperado na listagem da API.');
     }
-    return atual.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+    return atual
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
   }
 
   static Map<String, dynamic> _paginacao(dynamic body) {
     if (body is! Map) return {};
-    final p = body['pagination'] ?? body['meta'] ??
+    final p = body['pagination'] ??
+        body['meta'] ??
         (body['data'] is Map ? (body['data'] as Map)['pagination'] : null);
     if (p is Map) return Map<String, dynamic>.from(p);
     return {};
@@ -157,16 +166,18 @@ class ProdutoApiService {
 
     final rawCat = dado['category'];
     final slug = rawCat is Map
-        ? _texto(rawCat['slug'] ?? rawCat['name'] ??
+        ? _texto(rawCat['slug'] ??
+            rawCat['name'] ??
             categorias[_inteiro(rawCat['id'])])
         : _texto(dado['categorySlug'] ??
             (rawCat is num ? categorias[_inteiro(rawCat)] : rawCat) ??
             categorias[_inteiro(dado['categoryId'])]);
     final categoria = _categoria(slug);
     final original = preco;
-    final promocional = _numero(dado['promotionalPrice'] ?? dado['promotional_price']);
-    final promocaoValida = promocional != null &&
-        promocional > 0 && promocional < original;
+    final promocional =
+        _numero(dado['promotionalPrice'] ?? dado['promotional_price']);
+    final promocaoValida =
+        promocional != null && promocional > 0 && promocional < original;
 
     final nutrientes = dado['nutrition'] is Map
         ? Map<String, dynamic>.from(dado['nutrition'] as Map)
@@ -186,13 +197,17 @@ class ProdutoApiService {
     }
 
     final restricoes = <String>{};
-    final r = dado['restricoesAlimentares'] ?? dado['dietaryRestrictions'] ??
-        dado['restrictions'] ?? dado['productRestrictions'];
+    final r = dado['restricoesAlimentares'] ??
+        dado['dietaryRestrictions'] ??
+        dado['restrictions'] ??
+        dado['productRestrictions'];
     if (r is List) {
       for (final entrada in r) {
         dynamic valor = entrada;
         if (entrada is Map) {
-          valor = entrada['restriction'] ?? entrada['dietaryRestriction'] ?? entrada;
+          valor = entrada['restriction'] ??
+              entrada['dietaryRestriction'] ??
+              entrada;
           if (valor is Map) valor = valor['slug'] ?? valor['name'];
         }
         final chave = _restricao(_texto(valor));
@@ -212,28 +227,33 @@ class ProdutoApiService {
     final alergenicos = _itens(dado['allergens']);
 
     const icones = {
-      'bolo': '🎂', 'salgados': '🥐', 'doces': '🧁',
-      'sobremesas-geladas': '🍧', 'bebidas-quentes': '☕',
+      'bolo': '🎂',
+      'salgados': '🥐',
+      'doces': '🧁',
+      'sobremesas-geladas': '🍧',
+      'bebidas-quentes': '☕',
       'bebidas-geladas': '🥤',
     };
     return Produto(
       id: id,
       nome: nome,
       categoria: categoria,
-      preco: promocaoValida ? promocional! : original,
+      preco: promocaoValida ? promocional : original,
       precoAntigo: promocaoValida ? original : null,
       oferta: promocaoValida,
       descricao: _texto(dado['description'] ?? dado['descricao']),
       imagem: imagem,
       icon: icones[categoria] ?? '🍽️',
-      ingredientes: ingredientes.isEmpty ? ['Ingredientes não informados'] : ingredientes,
+      ingredientes:
+          ingredientes.isEmpty ? ['Ingredientes não informados'] : ingredientes,
       alergenicos: alergenicos.isEmpty
           ? ['Alergênicos não informados — consulte a cafeteria']
           : alergenicos,
       restricoes: restricoes.toList(),
       nutricional: Nutricional(
         calorias: nutricional('calorias', ['calories', 'calorias']),
-        carboidratos: nutricional('carboidratos', ['carbohydrates', 'carboidratos']),
+        carboidratos:
+            nutricional('carboidratos', ['carbohydrates', 'carboidratos']),
         proteinas: nutricional('proteinas', ['proteins', 'proteinas']),
         gorduras: nutricional('gorduras', ['fats', 'gorduras']),
         fibras: nutricional('fibras', ['fiber', 'fibras']),
@@ -246,9 +266,12 @@ class ProdutoApiService {
   static String _categoria(String slug) {
     final chave = _chave(slug);
     const opcoes = {
-      'bolo': 'bolo', 'bolos': 'bolo',
-      'salgado': 'salgados', 'salgados': 'salgados',
-      'doce': 'doces', 'doces': 'doces',
+      'bolo': 'bolo',
+      'bolos': 'bolo',
+      'salgado': 'salgados',
+      'salgados': 'salgados',
+      'doce': 'doces',
+      'doces': 'doces',
       'sobremesagelada': 'sobremesas-geladas',
       'sobremesasgeladas': 'sobremesas-geladas',
       'bebidaquente': 'bebidas-quentes',
@@ -270,19 +293,30 @@ class ProdutoApiService {
       'lowfodmap': 'lowFODMAP',
       'lowcarb': 'lowCarb',
       'semaditivosartificiais': 'semAditivosArtificiais',
-      'vegano': 'vegano', 'vegan': 'vegano',
-      'vegetariano': 'vegetariano', 'vegetarian': 'vegetariano',
+      'vegano': 'vegano',
+      'vegan': 'vegano',
+      'vegetariano': 'vegetariano',
+      'vegetarian': 'vegetariano',
       'semlactose': 'semLactose',
       'semgluten': 'semGluten',
     };
     return opcoes[chave];
   }
 
-  static String _chave(String valor) => valor.toLowerCase()
-      .replaceAll('á', 'a').replaceAll('à', 'a').replaceAll('â', 'a')
-      .replaceAll('ã', 'a').replaceAll('é', 'e').replaceAll('ê', 'e')
-      .replaceAll('í', 'i').replaceAll('ó', 'o').replaceAll('ô', 'o')
-      .replaceAll('õ', 'o').replaceAll('ú', 'u').replaceAll('ç', 'c')
+  static String _chave(String valor) => valor
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('à', 'a')
+      .replaceAll('â', 'a')
+      .replaceAll('ã', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('ê', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ô', 'o')
+      .replaceAll('õ', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ç', 'c')
       .replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   static String _texto(dynamic value) => value == null ? '' : '$value'.trim();
@@ -299,10 +333,14 @@ class ProdutoApiService {
   }
 
   static List<String> _itens(dynamic value) {
-    if (value is List) return value.map(_texto).where((x) => x.isNotEmpty).toList();
+    if (value is List)
+      return value.map(_texto).where((x) => x.isNotEmpty).toList();
     if (value is String && value.trim().isNotEmpty) {
-      return value.split(RegExp(r'[,;\n]'))
-          .map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      return value
+          .split(RegExp(r'[,;\n]'))
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
     }
     return [];
   }
@@ -315,7 +353,9 @@ class ProdutoApiService {
       return (url.scheme == 'http' || url.scheme == 'https') ? valor : '';
     }
     final host = _api.replace(path: '', query: '', fragment: '');
-    return host.resolve('/${valor.replaceFirst(RegExp(r'^/+'), '')}').toString();
+    return host
+        .resolve('/${valor.replaceFirst(RegExp(r'^/+'), '')}')
+        .toString();
   }
 }
 
