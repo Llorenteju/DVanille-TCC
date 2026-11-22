@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app.dart';
-import '../../models/pedido.dart';
-import '../../services/app_state.dart';
+import '../../services/admin_pedido_api_service.dart';
 import '../../services/navigation.dart';
 import '../../theme/app_theme.dart';
 import 'admin_shell.dart';
@@ -17,14 +16,55 @@ class AdminPedidosPage extends StatefulWidget {
 class _AdminPedidosPageState extends State<AdminPedidosPage> {
   static const List<String> _opcoes = [
     'recebido',
+    'confirmado',
     'em preparação',
     'pronto',
+    'saiu para entrega',
     'finalizado',
+    'cancelado',
   ];
+  String money(num valor) {
+    return 'R\$ ${valor.toStringAsFixed(2).replaceAll('.', ',')}';
+  }
 
   final TextEditingController _buscaController = TextEditingController();
 
   String _filtroStatus = 'todos';
+  List<PedidoAdminApi> _pedidos = const [];
+  bool _carregando = true;
+  String? _erro;
+  int? _salvandoPedido;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarPedidos();
+  }
+
+  Future<void> _carregarPedidos() async {
+    if (mounted)
+      setState(() {
+        _carregando = true;
+        _erro = null;
+      });
+    try {
+      final lista = await AdminPedidoApiService.instance.listarTodos();
+      if (!mounted) return;
+      setState(() {
+        _pedidos = lista;
+        _erro = null;
+        _carregando = false;
+      });
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() {
+        _pedidos =
+            const []; // Nunca substituir falha de API por dados fictícios.
+        _erro = erro.toString();
+        _carregando = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -52,10 +92,16 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     switch (status) {
       case 'recebido':
         return const Color(0xFF467A96);
+      case 'confirmado':
+        return const Color(0xFF6B82A0);
       case 'em preparação':
         return const Color(0xFFAD762D);
       case 'pronto':
         return const Color(0xFF43815A);
+      case 'saiu para entrega':
+        return const Color(0xFF467A96);
+      case 'cancelado':
+        return const Color(0xFFB45A5A);
       case 'finalizado':
         return DVanilleColors.taupe;
       default:
@@ -68,10 +114,16 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
       switch (status) {
         case 'recebido':
           return const Color(0xFF253F50);
+        case 'confirmado':
+          return const Color(0xFF253F50);
         case 'em preparação':
           return const Color(0xFF4E3925);
         case 'pronto':
           return const Color(0xFF294735);
+        case 'saiu para entrega':
+          return const Color(0xFF253F50);
+        case 'cancelado':
+          return const Color(0xFF55302F);
         case 'finalizado':
           return const Color(0xFF494036);
         default:
@@ -82,10 +134,16 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     switch (status) {
       case 'recebido':
         return const Color(0xFFE7F1F7);
+      case 'confirmado':
+        return const Color(0xFFE7F1F7);
       case 'em preparação':
         return const Color(0xFFFFF1DA);
       case 'pronto':
         return const Color(0xFFE4F2E7);
+      case 'saiu para entrega':
+        return const Color(0xFFE7F1F7);
+      case 'cancelado':
+        return const Color(0xFFF6E7E7);
       case 'finalizado':
         return const Color(0xFFF0EBE5);
       default:
@@ -97,10 +155,16 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     switch (status) {
       case 'recebido':
         return 'Recebido';
+      case 'confirmado':
+        return 'Confirmado';
       case 'em preparação':
         return 'Em preparação';
       case 'pronto':
         return 'Pronto';
+      case 'saiu para entrega':
+        return 'Saiu para entrega';
+      case 'cancelado':
+        return 'Cancelado';
       case 'finalizado':
         return 'Finalizado';
       default:
@@ -131,67 +195,64 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     );
   }
 
-  void _atualizarStatus(Pedido pedido, String novoStatus) {
-    if (pedido.status == novoStatus) return;
-
-    AppState.instance.atualizarStatusPedido(
-      pedido.id,
-      novoStatus,
-    );
-
-    showToast(
-      'Status do pedido atualizado!',
-      '📦',
-    );
+  Future<void> _atualizarStatus(
+      PedidoAdminApi pedido, String novoStatusApi) async {
+    if (_salvandoPedido != null) return;
+    setState(() {
+      _salvandoPedido = pedido.apiId;
+    });
+    try {
+      await AdminPedidoApiService.instance
+          .atualizarStatus(pedido, novoStatusApi);
+      if (!mounted) return;
+      showToast('Status do pedido atualizado!', '📦');
+      await _carregarPedidos();
+    } catch (erro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível atualizar: $erro')),
+      );
+    } finally {
+      if (mounted)
+        setState(() {
+          _salvandoPedido = null;
+        });
+    }
   }
 
-  Widget _menuStatus(Pedido pedido) {
+  Widget _menuStatus(PedidoAdminApi pedido) {
+    if (pedido.proximosStatusApi.isEmpty || _salvandoPedido != null) {
+      return _etiquetaStatus(pedido.status);
+    }
     return PopupMenuButton<String>(
       tooltip: 'Alterar status do pedido',
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
-      onSelected: (novoStatus) {
-        _atualizarStatus(pedido, novoStatus);
-      },
-      itemBuilder: (context) {
-        return _opcoes.map((status) {
-          return PopupMenuItem<String>(
-            value: status,
-            child: Row(
-              children: [
-                Icon(
-                  pedido.status == status
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: _corStatus(status),
-                  size: 19,
-                ),
-                const SizedBox(width: 12),
-                Text(_nomeStatus(status)),
-              ],
-            ),
-          );
-        }).toList();
-      },
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: (novoStatusApi) => _atualizarStatus(pedido, novoStatusApi),
+      itemBuilder: (context) => pedido.proximosStatusApi.map((statusApi) {
+        final statusLocal =
+            PedidoAdminApi.nomeStatusApi(statusApi).toLowerCase();
+        return PopupMenuItem<String>(
+          value: statusApi,
+          child: Row(
+            children: [
+              Icon(Icons.radio_button_unchecked,
+                  color: _corStatus(statusLocal), size: 19),
+              const SizedBox(width: 12),
+              Text(PedidoAdminApi.nomeStatusApi(statusApi)),
+            ],
+          ),
+        );
+      }).toList(),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: 3,
-          horizontal: 3,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 3),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             _etiquetaStatus(pedido.status),
             const SizedBox(width: 4),
-            Icon(
-              Icons.keyboard_arrow_down_rounded,
-              color: _corSecundaria,
-              size: 19,
-            ),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: _corSecundaria, size: 19),
           ],
         ),
       ),
@@ -281,12 +342,14 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
 
   Widget _resumoPedidos(
     double largura,
-    List<Pedido> pedidos,
+    List<PedidoAdminApi> pedidos,
   ) {
     final estatisticas = [
       (
         'Recebidos',
-        pedidos.where((p) => p.status == 'recebido').length,
+        pedidos
+            .where((p) => p.status == 'recebido' || p.status == 'confirmado')
+            .length,
         Icons.inbox_outlined,
         const Color(0xFF679AB2),
       ),
@@ -298,7 +361,10 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
       ),
       (
         'Prontos',
-        pedidos.where((p) => p.status == 'pronto').length,
+        pedidos
+            .where(
+                (p) => p.status == 'pronto' || p.status == 'saiu para entrega')
+            .length,
         Icons.check_circle_outline_rounded,
         const Color(0xFF74A381),
       ),
@@ -520,7 +586,7 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     );
   }
 
-  Future<void> _verDetalhes(Pedido pedido) async {
+  Future<void> _verDetalhes(PedidoAdminApi pedido) async {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -553,6 +619,8 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
                     'Horário',
                     pedido.data,
                   ),
+                  _linhaInformacao('Modalidade', pedido.modalidadeDescricao),
+                  _linhaInformacao('Pagamento', pedido.metodoPagamento),
                   const SizedBox(height: 5),
                   _etiquetaStatus(pedido.status),
                   const SizedBox(height: 18),
@@ -695,7 +763,7 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     );
   }
 
-  Widget _linhaTabela(Pedido pedido) {
+  Widget _linhaTabela(PedidoAdminApi pedido) {
     return Column(
       children: [
         Material(
@@ -812,7 +880,7 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
     );
   }
 
-  Widget _tabelaPedidos(List<Pedido> pedidos) {
+  Widget _tabelaPedidos(List<PedidoAdminApi> pedidos) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final larguraTabela =
@@ -844,7 +912,7 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
 
   // ================= CARDS MOBILE =================
 
-  Widget _cardPedidoMobile(Pedido pedido) {
+  Widget _cardPedidoMobile(PedidoAdminApi pedido) {
     final quantidadeItens = pedido.itens.fold<int>(
       0,
       (total, item) => total + item.qtd,
@@ -1010,104 +1078,117 @@ class _AdminPedidosPageState extends State<AdminPedidosPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = AppState.instance;
+    final todosPedidos = _pedidos;
+    final busca = _buscaController.text.trim().toLowerCase();
+    final pedidosFiltrados = todosPedidos.where((pedido) {
+      final correspondeBusca = busca.isEmpty ||
+          pedido.id.toLowerCase().contains(busca) ||
+          pedido.clienteEmail.toLowerCase().contains(busca) ||
+          pedido.clienteNome.toLowerCase().contains(busca) ||
+          pedido.resumoItens.toLowerCase().contains(busca);
+      final correspondeStatus =
+          _filtroStatus == 'todos' || pedido.status == _filtroStatus;
+      return correspondeBusca && correspondeStatus;
+    }).toList();
 
-    return ListenableBuilder(
-      listenable: state,
-      builder: (context, _) {
-        final todosPedidos = state.pedidos;
-
-        final busca = _buscaController.text.trim().toLowerCase();
-
-        final pedidosFiltrados = todosPedidos.reversed.where((pedido) {
-          final correspondeBusca = busca.isEmpty ||
-              pedido.id.toLowerCase().contains(busca) ||
-              pedido.clienteEmail.toLowerCase().contains(busca) ||
-              pedido.resumoItens.toLowerCase().contains(busca);
-
-          final correspondeStatus =
-              _filtroStatus == 'todos' || pedido.status == _filtroStatus;
-
-          return correspondeBusca && correspondeStatus;
-        }).toList();
-
-        return AdminShell(
-          titulo: 'Pedidos',
-          rotaAtual: Routes.adminPedidos,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final largura = constraints.maxWidth;
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return AdminShell(
+      titulo: 'Pedidos',
+      rotaAtual: Routes.adminPedidos,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final largura = constraints.maxWidth;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  // SUBTÍTULO
-                  Text(
-                    'Acompanhe e gerencie os pedidos da cafeteria.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: _corSecundaria,
+                  Expanded(
+                    child: Text(
+                      'Acompanhe e gerencie os pedidos da cafeteria.',
+                      style: TextStyle(fontSize: 14, color: _corSecundaria),
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // CARDS DE ESTATÍSTICAS
-                  _resumoPedidos(
-                    largura,
-                    todosPedidos,
+                  TextButton.icon(
+                    onPressed: _carregando ? null : _carregarPedidos,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Atualizar pedidos'),
                   ),
-
-                  const SizedBox(height: 27),
-
-                  // PESQUISA E FILTROS
-                  _barraFiltros(largura),
-
-                  const SizedBox(height: 17),
-
-                  // CONTADOR DE RESULTADOS
-                  Row(
+                ],
+              ),
+              const SizedBox(height: 24),
+              if (_carregando) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 16),
+              ],
+              if (_erro != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _corSuperficie,
+                    border: Border.all(color: DVanilleColors.rose),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.receipt_long_outlined,
-                        color: _corSecundaria,
-                        size: 19,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${pedidosFiltrados.length} de '
-                          '${todosPedidos.length} pedidos',
+                      Text('Não foi possível carregar os pedidos do Supabase:',
                           style: TextStyle(
-                            color: _corSecundaria,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                              color: _corTexto, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text(_erro!, style: TextStyle(color: _corSecundaria)),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: _carregarPedidos,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Tentar novamente'),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // LISTAGEM RESPONSIVA
-                  if (pedidosFiltrados.isEmpty)
-                    _mensagemListaVazia(
-                      todosPedidos.isNotEmpty,
-                    )
-                  else if (largura >= 700)
-                    _tabelaPedidos(pedidosFiltrados)
-                  else
-                    Column(
-                      children:
-                          pedidosFiltrados.map(_cardPedidoMobile).toList(),
+                ),
+                const SizedBox(height: 20),
+              ],
+              _resumoPedidos(largura, todosPedidos),
+              const SizedBox(height: 27),
+              _barraFiltros(largura),
+              const SizedBox(height: 17),
+              Row(
+                children: [
+                  Icon(Icons.receipt_long_outlined,
+                      color: _corSecundaria, size: 19),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${pedidosFiltrados.length} de ${todosPedidos.length} pedidos',
+                      style: TextStyle(
+                          color: _corSecundaria,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
                     ),
+                  ),
                 ],
-              );
-            },
-          ),
-        );
-      },
+              ),
+              const SizedBox(height: 16),
+              if (_carregando && todosPedidos.isEmpty)
+                const Center(
+                    child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                ))
+              else if (_erro != null)
+                const SizedBox
+                    .shrink() // Falha de API nunca vira lista fictícia.
+              else if (pedidosFiltrados.isEmpty)
+                _mensagemListaVazia(todosPedidos.isNotEmpty)
+              else if (largura >= 700)
+                _tabelaPedidos(pedidosFiltrados)
+              else
+                Column(
+                    children: pedidosFiltrados.map(_cardPedidoMobile).toList()),
+            ],
+          );
+        },
+      ),
     );
   }
 }
