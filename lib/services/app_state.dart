@@ -15,6 +15,7 @@ import '../models/usuario.dart';
 import '../models/vale_presente.dart';
 import 'validade_vale.dart';
 import 'auth_api_service.dart';
+import 'user_preferences_mapper.dart';
 import 'produto_api_service.dart';
 import 'admin_produto_api_service.dart';
 
@@ -564,6 +565,86 @@ class AppState extends ChangeNotifier {
   final AuthApiService _authApi = AuthApiService();
   bool get logadoPelaApi => _authApi.isAuthenticated;
 
+  void _aplicarPreferenciasApi(Usuario usuario, UserPreferencesData dados) {
+    usuario
+      ..dataNascimento = dados.birthDate
+      ..restricoes = UserPreferencesMapper.paraFlutter(dados.dietaryPreferences)
+      ..notificacoes = dados.notificationsOptIn;
+    notifyListeners();
+  }
+
+  /// Consulta dados da conta autenticada diretamente do backend.
+  /// Se falhar, propaga o erro; a tela não deve sobrescrever dados remotos.
+  Future<void> carregarPreferenciasUsuarioApi() async {
+    final usuario = usuarioLogado;
+    if (usuario == null || usuario.isAdmin || !logadoPelaApi) return;
+    final dados = await _authApi.buscarPreferencias();
+    if (usuarioLogado?.id == usuario.id) {
+      _aplicarPreferenciasApi(usuario, dados);
+    }
+  }
+
+  Future<void> salvarPreferenciasUsuarioApi({
+    required DateTime? dataNascimento,
+    required List<String> restricoes,
+    required bool notificacoes,
+  }) async {
+    final usuario = usuarioLogado;
+    if (usuario == null || usuario.isAdmin || !logadoPelaApi) {
+      throw const DVanilleApiException(
+          'Faça login como cliente para continuar.');
+    }
+    final dados = await _authApi.salvarPreferencias(
+      birthDate: dataNascimento,
+      dietaryPreferences: UserPreferencesMapper.paraApi(restricoes),
+      notificationsOptIn: notificacoes,
+    );
+    if (usuarioLogado?.id == usuario.id) {
+      _aplicarPreferenciasApi(usuario, dados);
+    }
+  }
+
+  Future<void> apagarPreferenciasUsuarioApi() async {
+    final usuario = usuarioLogado;
+    if (usuario == null || usuario.isAdmin || !logadoPelaApi) {
+      throw const DVanilleApiException(
+          'Faça login como cliente para continuar.');
+    }
+    final dados = await _authApi.apagarPreferencias();
+    if (usuarioLogado?.id == usuario.id) {
+      _aplicarPreferenciasApi(usuario, dados);
+    }
+  }
+
+  Future<void> atualizarDadosPessoaisApi({
+    required String nome,
+    required String telefone,
+  }) async {
+    final usuario = usuarioLogado;
+    if (usuario == null || !logadoPelaApi) {
+      throw const DVanilleApiException('Faça login para editar o perfil.');
+    }
+    final atualizado = await _authApi.atualizarDadosPessoais(
+      name: nome,
+      phone: telefone,
+    );
+    if (usuarioLogado?.id == usuario.id) {
+      usuario
+        ..nome = atualizado.name
+        ..telefone = atualizado.phone;
+      notifyListeners();
+    }
+  }
+
+  Future<void> alterarSenhaUsuarioApi({
+    required String senhaAtual,
+    required String novaSenha,
+  }) =>
+      _authApi.alterarSenha(
+        currentPassword: senhaAtual,
+        newPassword: novaSenha,
+      );
+
   /// Após F5, confere com /api/auth/me a sessão guardada em cookie HttpOnly.
   Future<void> restaurarSessaoApi() async {
     try {
@@ -578,7 +659,15 @@ class AppState extends ChangeNotifier {
           senha: '',
           telefone: usuario.phone,
           tipo: usuario.isAdmin ? 'admin' : 'cliente',
+          notificacoes: false,
         );
+        if (!usuario.isAdmin) {
+          try {
+            await carregarPreferenciasUsuarioApi();
+          } catch (erro) {
+            debugPrint('Preferências ainda não disponíveis: $erro');
+          }
+        }
       }
       notifyListeners();
     } catch (erro) {
@@ -700,23 +789,9 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
-  /// Produtos recomendados de acordo com as restrições do perfil.
-  List<Produto> get recomendados {
-    final usuario = usuarioLogado;
-
-    if (usuario == null || usuario.isAdmin || usuario.restricoes.isEmpty) {
-      return [];
-    }
-
-    return produtos
-        .where(
-          (produto) => usuario.restricoes.any(
-            (restricao) => produto.restricoes.contains(restricao),
-          ),
-        )
-        .take(4)
-        .toList();
-  }
+  /// Nunca equiparar uma condição pessoal a um selo do cardápio.
+  /// Recomendações personalizadas exigem regras nutricionais validadas.
+  List<Produto> get recomendados => const <Produto>[];
 
   /// Operações reais: não atualiza a interface antes de a API confirmar.
   Future<void> salvarProdutoComApi(
@@ -864,7 +939,15 @@ class AppState extends ChangeNotifier {
         senha: '',
         telefone: sessao.user.phone,
         tipo: sessao.user.isAdmin ? 'admin' : 'cliente',
+        notificacoes: false,
       );
+      if (!sessao.user.isAdmin) {
+        try {
+          await carregarPreferenciasUsuarioApi();
+        } catch (erro) {
+          debugPrint('Preferências ainda não disponíveis: $erro');
+        }
+      }
       notifyListeners();
       // Recarrega a lista com /admin/products após login administrativo.
       if (isAdmin) await carregarCatalogoApi();
@@ -917,22 +1000,25 @@ class AppState extends ChangeNotifier {
 
   // ================= cadastro =================
 
-  /// Registra na API e mantém os campos extras apenas nesta sessão.
-  /// Até o backend suportar os campos, eles NÃO são salvos no Supabase.
+  /// Cria a conta e as preferências opcionais em uma única transação da API.
   Future<Usuario> cadastrarComApi({
     required String nome,
     required String email,
     required String telefone,
     required String senha,
-    required DateTime dataNascimento,
+    DateTime? dataNascimento,
     required List<String> restricoes,
     required bool notificacoes,
   }) async {
+    final preferencias = UserPreferencesMapper.paraApi(restricoes);
     final sessao = await _authApi.register(
       name: nome,
       email: email,
       phone: telefone,
       password: senha,
+      birthDate: dataNascimento,
+      dietaryPreferences: preferencias,
+      notificationsOptIn: notificacoes,
     );
     final usuario = Usuario(
       id: sessao.user.id,
@@ -942,7 +1028,7 @@ class AppState extends ChangeNotifier {
       telefone: sessao.user.phone,
       tipo: sessao.user.isAdmin ? 'admin' : 'cliente',
       dataNascimento: dataNascimento,
-      restricoes: List<String>.from(restricoes),
+      restricoes: UserPreferencesMapper.paraFlutter(preferencias),
       notificacoes: notificacoes,
     );
     usuarioLogado = usuario;

@@ -51,6 +51,34 @@ class AuthUser {
   }
 }
 
+/// Preferências privadas do próprio cliente autenticado.
+/// Não são incluídas no JWT nem nas listagens administrativas.
+class UserPreferencesData {
+  final DateTime? birthDate;
+  final List<String> dietaryPreferences;
+  final bool notificationsOptIn;
+
+  const UserPreferencesData({
+    required this.birthDate,
+    required this.dietaryPreferences,
+    required this.notificationsOptIn,
+  });
+
+  factory UserPreferencesData.fromJson(Map<String, dynamic> json) {
+    final rawDate = json['birthDate'];
+    final rawList = json['dietaryPreferences'];
+    return UserPreferencesData(
+      birthDate: rawDate is String && rawDate.isNotEmpty
+          ? DateTime.tryParse(rawDate)
+          : null,
+      dietaryPreferences: rawList is List
+          ? rawList.whereType<String>().toList(growable: false)
+          : const [],
+      notificationsOptIn: json['notificationsOptIn'] == true,
+    );
+  }
+}
+
 class AuthSession {
   final AuthUser user;
   final String token;
@@ -132,14 +160,16 @@ class AuthApiService {
     return session;
   }
 
-  /// Cadastro: POST /api/auth/register.
-  /// Os demais campos do formulário (nascimento, restrições, notificações)
-  /// ainda não existem na API e precisam ser implementados no backend.
+  /// Cadastro atômico: dados básicos e preferências opcionais.
+  /// Os rótulos devem ser os exatos aceitos pelo backend.
   Future<AuthSession> register({
     required String name,
     required String email,
     required String phone,
     required String password,
+    DateTime? birthDate,
+    List<String>? dietaryPreferences,
+    bool notificationsOptIn = false,
   }) async {
     final body = await _send(
       'POST',
@@ -149,6 +179,10 @@ class AuthApiService {
         'email': email.trim().toLowerCase(),
         'phone': phone.trim(),
         'password': password,
+        if (birthDate != null) 'birthDate': _formatDate(birthDate),
+        if (dietaryPreferences != null)
+          'dietaryPreferences': dietaryPreferences,
+        'notificationsOptIn': notificationsOptIn,
       },
     );
 
@@ -156,6 +190,97 @@ class AuthApiService {
     _session = session;
     _usuarioCookie = session.user;
     return session;
+  }
+
+  static String _formatDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  /// Busca somente os dados privados da conta autenticada.
+  Future<UserPreferencesData> buscarPreferencias() async {
+    final body = await _send(
+      'GET',
+      '/users/me/preferences',
+      requireAuth: true,
+    );
+    final data = body['data'];
+    if (data is! Map) {
+      throw const DVanilleApiException('Resposta inválida das preferências.');
+    }
+    return UserPreferencesData.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  Future<UserPreferencesData> salvarPreferencias({
+    DateTime? birthDate,
+    required List<String> dietaryPreferences,
+    required bool notificationsOptIn,
+  }) async {
+    final body = await _send(
+      'PUT',
+      '/users/me/preferences',
+      requireAuth: true,
+      data: {
+        'birthDate': birthDate == null ? null : _formatDate(birthDate),
+        'dietaryPreferences': dietaryPreferences,
+        'notificationsOptIn': notificationsOptIn,
+      },
+    );
+    final data = body['data'];
+    if (data is! Map) {
+      throw const DVanilleApiException(
+          'Resposta inválida ao salvar preferências.');
+    }
+    return UserPreferencesData.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  Future<UserPreferencesData> apagarPreferencias() async {
+    final body = await _send(
+      'DELETE',
+      '/users/me/preferences',
+      requireAuth: true,
+    );
+    final data = body['data'];
+    if (data is! Map) {
+      throw const DVanilleApiException(
+          'Resposta inválida ao apagar preferências.');
+    }
+    return UserPreferencesData.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// O backend permite editar nome e telefone, não e-mail/endereço.
+  Future<AuthUser> atualizarDadosPessoais({
+    required String name,
+    required String phone,
+  }) async {
+    final body = await _send(
+      'PUT',
+      '/users/me',
+      requireAuth: true,
+      data: {'name': name.trim(), 'phone': phone.trim()},
+    );
+    final data = body['data'];
+    if (data is! Map) {
+      throw const DVanilleApiException('Resposta inválida ao salvar perfil.');
+    }
+    final user = AuthUser.fromJson(Map<String, dynamic>.from(data));
+    _usuarioCookie = user;
+    return user;
+  }
+
+  Future<void> alterarSenha({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _send(
+      'PUT',
+      '/users/me/password',
+      requireAuth: true,
+      data: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
+    );
   }
 
   /// Recupera a sessão do cookie HttpOnly após F5, sem guardar JWT no Web.

@@ -33,7 +33,8 @@ class _CadastroPageState extends State<CadastroPage> {
 
   DateTime? dataNascimentoSelecionada;
   final Set<String> restricoes = {};
-  bool notificacoes = true;
+  bool notificacoes = false;
+  bool autorizouDadosAlimentares = false;
   bool cadastrando = false;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
@@ -126,7 +127,6 @@ class _CadastroPageState extends State<CadastroPage> {
     if (nome.text.trim().isEmpty ||
         email.text.trim().isEmpty ||
         telefone.text.trim().isEmpty ||
-        dataNascimentoSelecionada == null ||
         senha.text.isEmpty ||
         senha2.text.isEmpty) {
       setState(() => erro = 'Preencha todos os campos obrigatórios.');
@@ -174,23 +174,21 @@ class _CadastroPageState extends State<CadastroPage> {
           ..add(id);
       }
 
+      if (restricoes.isEmpty || restricoes.contains('nenhuma')) {
+        autorizouDadosAlimentares = false;
+      }
       erro = null;
     });
   }
 
   Future<void> _concluir() async {
     if (cadastrando) return;
-    if (restricoes.isEmpty) {
-      setState(() => erro = 'Selecione uma opção ou escolha "Nenhuma".');
-      return;
-    }
-
-    final nascimento = dataNascimentoSelecionada;
-    if (nascimento == null) {
-      setState(() {
-        etapa = 1;
-        erro = 'Informe sua data de nascimento completa.';
-      });
+    final temDadosAlimentares =
+        restricoes.any((r) => r != 'nenhuma');
+    if (temDadosAlimentares && !autorizouDadosAlimentares) {
+      setState(() => erro =
+          'Para salvar essas informações, marque a autorização abaixo. '
+          'Você também pode desmarcar as opções e concluir sem informar dados alimentares.');
       return;
     }
 
@@ -200,15 +198,14 @@ class _CadastroPageState extends State<CadastroPage> {
     });
 
     try {
-      // Cadastro real na API Node.js/PostgreSQL.
-      // Restrições e demais preferências ainda ficam só nesta sessão.
+      // Cadastro atômico na API: usuário + dados opcionais autorizados.
       await AppState.instance.cadastrarComApi(
         nome: nome.text.trim(),
         email: email.text.trim(),
         telefone: telefone.text.trim(),
         senha: senha.text,
-        dataNascimento: nascimento,
-        restricoes: restricoes.where((r) => r != 'nenhuma').toList(),
+        dataNascimento: dataNascimentoSelecionada,
+        restricoes: restricoes.toList(),
         notificacoes: notificacoes,
       );
 
@@ -325,7 +322,7 @@ class _CadastroPageState extends State<CadastroPage> {
           onTap: _selecionarDataNascimento,
           style: TextStyle(color: corTexto),
           decoration: const InputDecoration(
-            labelText: 'Data de nascimento *',
+            labelText: 'Data de nascimento (opcional)',
             hintText: 'dd/mm/aaaa',
             suffixIcon: Icon(Icons.calendar_month),
           ),
@@ -373,6 +370,13 @@ class _CadastroPageState extends State<CadastroPage> {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: DicaCampo(
+            'A data de nascimento é opcional e pode ser removida no perfil.',
+          ),
+        ),
         const SizedBox(height: 22),
         SizedBox(
           width: double.infinity,
@@ -403,7 +407,7 @@ class _CadastroPageState extends State<CadastroPage> {
     return Column(
       children: [
         Text(
-          'Você possui alguma restrição alimentar?',
+          'Preferências alimentares (opcional)',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'CreamCake',
@@ -422,7 +426,15 @@ class _CadastroPageState extends State<CadastroPage> {
             color: corTextoSecundario,
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 12),
+        Text(
+          'Essas informações podem revelar condições de saúde. Preencha apenas se quiser: '
+          'elas serão guardadas na sua conta para consulta e edição no perfil. '
+          'Não serão usadas para afirmar que um produto é seguro.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: corTextoSecundario),
+        ),
+        const SizedBox(height: 14),
         if (erro != null) CaixaAlerta(erro!),
         Wrap(
           spacing: 10,
@@ -478,6 +490,24 @@ class _CadastroPageState extends State<CadastroPage> {
             );
           }).toList(),
         ),
+        if (restricoes.any((r) => r != 'nenhuma')) ...[
+          const SizedBox(height: 14),
+          CheckboxListTile(
+            value: autorizouDadosAlimentares,
+            onChanged: (v) => setState(() {
+              autorizouDadosAlimentares = v ?? false;
+              erro = null;
+            }),
+            activeColor: corDestaque,
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              'Autorizo guardar as opções alimentares selecionadas na minha conta. '
+              'Poderei alterá-las ou apagá-las em Meu perfil.',
+              style: TextStyle(fontSize: 13, color: corTexto),
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
         CheckboxListTile(
           value: notificacoes,
@@ -498,9 +528,9 @@ class _CadastroPageState extends State<CadastroPage> {
         ),
         const SizedBox(height: 12),
         Text(
-          'Nesta etapa de integração, data de nascimento, restrições '
-          'alimentares e preferência de notificações não são salvas no '
-          'servidor. Elas serão mantidas somente nesta sessão.',
+          'Os dados opcionais serão salvos com a conta no servidor. '
+          'O recebimento de ofertas é desativado por padrão e independente '
+          'das suas opções alimentares.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, color: corTextoSecundario),
         ),

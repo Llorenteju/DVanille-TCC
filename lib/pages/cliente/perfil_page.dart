@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
+
+import '../../services/auth_api_service.dart';
 
 import '../../app/app.dart';
 import '../../data/mock_data.dart';
@@ -38,6 +41,12 @@ class _PerfilPageState extends State<PerfilPage> {
   bool mostrarConfirmacao = false;
 
   String? mensagem;
+  bool mensagemSucesso = false;
+  bool carregandoPreferencias = false;
+  bool preferenciasCarregadas = false;
+  bool salvando = false;
+  bool apagando = false;
+  bool autorizouDadosAlimentares = false;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
 
@@ -75,7 +84,51 @@ class _PerfilPageState extends State<PerfilPage> {
     );
 
     restricoes = {...?u?.restricoes};
-    notificacoes = u?.notificacoes ?? true;
+    notificacoes = u?.notificacoes ?? false;
+
+    if (u != null && !u.isAdmin && state.logadoPelaApi) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _carregarPreferencias();
+      });
+    }
+  }
+
+  Future<void> _carregarPreferencias() async {
+    if (carregandoPreferencias) return;
+    final id = state.usuarioLogado?.id;
+    setState(() {
+      carregandoPreferencias = true;
+      preferenciasCarregadas = false;
+      mensagem = null;
+    });
+    try {
+      await state.carregarPreferenciasUsuarioApi();
+      if (!mounted || id != state.usuarioLogado?.id) return;
+      final usuario = state.usuarioLogado;
+      setState(() {
+        restricoes = {...?usuario?.restricoes};
+        notificacoes = usuario?.notificacoes ?? false;
+        dataNascimentoSelecionada = usuario?.dataNascimento;
+        dataNascimento.text = usuario?.dataNascimento == null
+            ? ''
+            : _formatarData(usuario!.dataNascimento!);
+        autorizouDadosAlimentares = false;
+        preferenciasCarregadas = true;
+      });
+    } on DVanilleApiException catch (e) {
+      if (mounted)
+        _mostrarMensagem(
+          'Não foi possível carregar suas preferências: ${e.message}. '
+          'Tente novamente antes de salvar.',
+        );
+    } catch (_) {
+      if (mounted)
+        _mostrarMensagem(
+          'Não foi possível consultar as preferências. Tente novamente.',
+        );
+    } finally {
+      if (mounted) setState(() => carregandoPreferencias = false);
+    }
   }
 
   @override
@@ -104,6 +157,7 @@ class _PerfilPageState extends State<PerfilPage> {
   void _mostrarMensagem(String texto) {
     setState(() {
       mensagem = texto;
+      mensagemSucesso = false;
     });
   }
 
@@ -151,123 +205,191 @@ class _PerfilPageState extends State<PerfilPage> {
     });
   }
 
-  void _salvar() {
+  String _chaveData(DateTime? data) {
+    if (data == null) return '';
+    return '${data.year}-${data.month.toString().padLeft(2, '0')}-'
+        '${data.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _salvar() async {
+    if (salvando || apagando || carregandoPreferencias) return;
     final usuario = state.usuarioLogado;
-
-    if (usuario == null) {
-      _mostrarMensagem('Entre na sua conta para editar o perfil.');
+    if (usuario == null || !state.logadoPelaApi) {
+      _mostrarMensagem('Entre novamente na sua conta para editar o perfil.');
       return;
     }
 
-    final isAdmin = state.isAdmin;
-
-    if (nome.text.trim().isEmpty || email.text.trim().isEmpty) {
-      _mostrarMensagem('Preencha nome e e-mail.');
+    final isAdmin = usuario.isAdmin;
+    if (!isAdmin && !preferenciasCarregadas) {
+      _mostrarMensagem('Carregue suas preferências antes de salvar.');
+      return;
+    }
+    final nomeNovo = nome.text.trim();
+    final telefoneNovo = telefone.text.trim();
+    if (nomeNovo.length < 2) {
+      _mostrarMensagem('Informe um nome com pelo menos 2 caracteres.');
+      return;
+    }
+    if (!isAdmin && !RegExp(r'^[\d()+\-\s]{8,20}$').hasMatch(telefoneNovo)) {
+      _mostrarMensagem('Informe um telefone válido (8 a 20 caracteres).');
+      return;
+    }
+    if (email.text.trim().toLowerCase() != usuario.email.toLowerCase() ||
+        endereco.text.trim() != usuario.endereco.trim()) {
+      _mostrarMensagem(
+          'Nesta etapa, e-mail e endereço não podem ser alterados no servidor.');
       return;
     }
 
-    if (!isAdmin && telefone.text.trim().isEmpty) {
-      _mostrarMensagem('Preencha nome, e-mail e telefone.');
-      return;
-    }
-
-    if (!RegExp(
-      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-    ).hasMatch(email.text.trim())) {
-      _mostrarMensagem('Informe um endereço de e-mail válido.');
-      return;
-    }
-
-    if (!isAdmin && dataNascimentoSelecionada == null) {
-      _mostrarMensagem('Selecione sua data de nascimento completa.');
-      return;
-    }
-
-    if (state.emailJaCadastrado(email.text) &&
-        email.text.trim().toLowerCase() != usuario.email.trim().toLowerCase()) {
-      _mostrarMensagem('Este e-mail já está cadastrado.');
-      return;
-    }
-
-    final solicitouTrocaSenha = senhaAtual.text.isNotEmpty ||
+    final querAlterarSenha = senhaAtual.text.isNotEmpty ||
         novaSenha.text.isNotEmpty ||
         confirmarSenha.text.isNotEmpty;
-
-    if (solicitouTrocaSenha) {
+    if (querAlterarSenha) {
       if (senhaAtual.text.isEmpty ||
           novaSenha.text.isEmpty ||
           confirmarSenha.text.isEmpty) {
-        _mostrarMensagem(
-          'Para trocar a senha, preencha a senha atual, '
-          'a nova senha e a confirmação.',
-        );
+        _mostrarMensagem('Preencha senha atual, nova senha e confirmação.');
         return;
       }
-
-      if (senhaAtual.text != usuario.senha) {
-        _mostrarMensagem(
-          'A senha atual está incorreta. Confira e tente novamente.',
-        );
-        return;
-      }
-
       if (novaSenha.text != confirmarSenha.text) {
-        _mostrarMensagem(
-          'A confirmação não coincide com a nova senha.',
-        );
+        _mostrarMensagem('A confirmação não coincide com a nova senha.');
         return;
       }
-
       if (!AppState.senhaValida(novaSenha.text)) {
-        _mostrarMensagem(
-          'A nova senha deve ter no mínimo 6 caracteres, '
-          '1 letra maiúscula e 1 caractere especial.',
-        );
+        _mostrarMensagem('A nova senha deve ter entre 8 e 72 caracteres, '
+            'com letra maiúscula, número e caractere especial.');
         return;
       }
-
-      if (novaSenha.text == usuario.senha) {
-        _mostrarMensagem(
-          'A nova senha deve ser diferente da senha atual.',
-        );
+      if (senhaAtual.text == novaSenha.text) {
+        _mostrarMensagem('A nova senha deve ser diferente da senha atual.');
         return;
       }
     }
 
-    final erro = state.atualizarPerfil(
-      nome: nome.text.trim(),
-      email: email.text.trim(),
-      // Dados de consumo só são enviados para contas de clientes.
-      telefone: isAdmin ? null : telefone.text.trim(),
-      endereco: isAdmin ? null : endereco.text.trim(),
-      dataNascimento: isAdmin ? null : dataNascimentoSelecionada,
-      notificacoes: isAdmin ? null : notificacoes,
-      senhaAtual: solicitouTrocaSenha ? senhaAtual.text : null,
-      novaSenha: solicitouTrocaSenha ? novaSenha.text : null,
-      confirmarNovaSenha: solicitouTrocaSenha ? confirmarSenha.text : null,
-      restricoes: isAdmin ? null : restricoes.toList(),
-    );
-
-    if (erro != null) {
-      _mostrarMensagem(erro);
+    final dadosAlterados = nomeNovo != usuario.nome ||
+        (!isAdmin && telefoneNovo != usuario.telefone);
+    final preferenciasAlteradas = !isAdmin &&
+        (_chaveData(dataNascimentoSelecionada) !=
+                _chaveData(usuario.dataNascimento) ||
+            !setEquals(restricoes, usuario.restricoes.toSet()) ||
+            notificacoes != usuario.notificacoes);
+    final temDadosAlimentares = restricoes.any((r) => r != 'nenhuma');
+    if (preferenciasAlteradas &&
+        temDadosAlimentares &&
+        !autorizouDadosAlimentares) {
+      _mostrarMensagem('Autorize o armazenamento das opções alimentares '
+          'selecionadas ou desmarque-as antes de salvar.');
+      return;
+    }
+    if (!dadosAlterados && !preferenciasAlteradas && !querAlterarSenha) {
+      _mostrarMensagem('Não há alterações para salvar.');
       return;
     }
 
-    senhaAtual.clear();
-    novaSenha.clear();
-    confirmarSenha.clear();
-
     setState(() {
-      mensagem = 'Dados atualizados com sucesso!';
+      salvando = true;
+      mensagem = null;
     });
+    var gravacoes = 0;
+    try {
+      if (dadosAlterados) {
+        await state.atualizarDadosPessoaisApi(
+          nome: nomeNovo,
+          telefone: isAdmin ? usuario.telefone : telefoneNovo,
+        );
+        gravacoes++;
+      }
+      if (preferenciasAlteradas) {
+        await state.salvarPreferenciasUsuarioApi(
+          dataNascimento: dataNascimentoSelecionada,
+          restricoes: restricoes.toList(),
+          notificacoes: notificacoes,
+        );
+        gravacoes++;
+      }
+      if (querAlterarSenha) {
+        await state.alterarSenhaUsuarioApi(
+          senhaAtual: senhaAtual.text,
+          novaSenha: novaSenha.text,
+        );
+        gravacoes++;
+      }
+      if (!mounted) return;
+      senhaAtual.clear();
+      novaSenha.clear();
+      confirmarSenha.clear();
+      setState(() {
+        autorizouDadosAlimentares = false;
+        mensagem = 'Dados atualizados com sucesso!';
+        mensagemSucesso = true;
+      });
+      showToast('Perfil atualizado!', '✓');
+    } on DVanilleApiException catch (e) {
+      if (mounted) {
+        final aviso = gravacoes > 0
+            ? ' Algumas alterações anteriores foram salvas. '
+                'Confira os dados antes de tentar novamente.'
+            : '';
+        _mostrarMensagem('${e.message}$aviso');
+      }
+    } catch (_) {
+      if (mounted) {
+        final aviso =
+            gravacoes > 0 ? ' Algumas alterações podem ter sido salvas.' : '';
+        _mostrarMensagem('Não foi possível concluir a atualização.$aviso');
+      }
+    } finally {
+      if (mounted) setState(() => salvando = false);
+    }
+  }
 
-    showToast('Perfil atualizado!', '✓');
-
-    if (solicitouTrocaSenha) {
-      showToast(
-        'Senha alterada! Se não foi você, proteja sua conta.',
-        'trocarsenha.svg',
-      );
+  Future<void> _apagarPreferencias() async {
+    if (apagando ||
+        salvando ||
+        carregandoPreferencias ||
+        !preferenciasCarregadas) return;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Apagar preferências pessoais?'),
+        content: const Text(
+          'Isso apaga suas opções alimentares, data de nascimento e '
+          'preferência de notificações armazenadas no servidor. '
+          'Sua conta continuará ativa.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Apagar preferências')),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+    setState(() {
+      apagando = true;
+      mensagem = null;
+    });
+    try {
+      await state.apagarPreferenciasUsuarioApi();
+      if (!mounted) return;
+      setState(() {
+        restricoes.clear();
+        notificacoes = false;
+        autorizouDadosAlimentares = false;
+        dataNascimentoSelecionada = null;
+        dataNascimento.clear();
+        mensagem = 'Preferências apagadas com sucesso!';
+        mensagemSucesso = true;
+      });
+    } on DVanilleApiException catch (e) {
+      if (mounted) _mostrarMensagem(e.message);
+    } catch (_) {
+      if (mounted) _mostrarMensagem('Não foi possível apagar as preferências.');
+    } finally {
+      if (mounted) setState(() => apagando = false);
     }
   }
 
@@ -275,9 +397,11 @@ class _PerfilPageState extends State<PerfilPage> {
     TextEditingController controller,
     String label, {
     TextInputType tipo = TextInputType.text,
+    bool somenteLeitura = false,
   }) {
     return TextField(
       controller: controller,
+      readOnly: somenteLeitura,
       keyboardType: tipo,
       style: TextStyle(color: corTexto),
       onChanged: (_) {
@@ -402,13 +526,11 @@ class _PerfilPageState extends State<PerfilPage> {
     // Identifica a conta administrativa.
     final isAdmin = state.isAdmin || usuario?.tipo == 'admin';
 
+    // Somente as 14 opções pessoais aceitas pela API.
+    // NÃO mesclar filtros nutricionais de produtos nesta lista.
     final labelsRestricoes = <String, String>{
-      ...restricoesLabels,
+      for (final opcao in opcoesRestricaoCadastro) opcao[0]: opcao[1],
     };
-
-    for (final opcao in opcoesRestricaoCadastro) {
-      labelsRestricoes[opcao[0]] = opcao[1];
-    }
 
     return PageShell(
       // O perfil usa o mesmo cabeçalho e rodapé públicos para os dois tipos
@@ -460,7 +582,7 @@ class _PerfilPageState extends State<PerfilPage> {
                   if (mensagem != null) ...[
                     CaixaAlerta(
                       mensagem!,
-                      erro: mensagem != 'Dados atualizados com sucesso!',
+                      erro: !mensagemSucesso,
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -473,8 +595,9 @@ class _PerfilPageState extends State<PerfilPage> {
                     _campo(nome, 'Nome completo *'),
                     _campo(
                       email,
-                      'E-mail *',
+                      'E-mail (não editável nesta etapa)',
                       tipo: TextInputType.emailAddress,
+                      somenteLeitura: true,
                     ),
                   ]),
 
@@ -489,23 +612,42 @@ class _PerfilPageState extends State<PerfilPage> {
                       TextField(
                         controller: dataNascimento,
                         readOnly: true,
-                        onTap: _selecionarDataNascimento,
+                        onTap: preferenciasCarregadas && !salvando && !apagando
+                            ? _selecionarDataNascimento
+                            : null,
                         style: TextStyle(color: corTexto),
-                        decoration: const InputDecoration(
-                          labelText: 'Data de nascimento *',
+                        decoration: InputDecoration(
+                          labelText: 'Data de nascimento (opcional)',
                           hintText: 'dd/mm/aaaa',
-                          suffixIcon: Icon(Icons.calendar_month),
+                          suffixIcon: IconButton(
+                            tooltip: 'Limpar data de nascimento',
+                            onPressed:
+                                preferenciasCarregadas && !salvando && !apagando
+                                    ? () => setState(() {
+                                          dataNascimentoSelecionada = null;
+                                          dataNascimento.clear();
+                                          mensagem = null;
+                                        })
+                                    : null,
+                            icon: const Icon(Icons.close),
+                          ),
                         ),
                       ),
                     ]),
                     const SizedBox(height: 14),
                     TextField(
                       controller: endereco,
-                      style: TextStyle(color: corTexto),
+                      readOnly: true,
+                      style: TextStyle(color: corTextoSecundario),
                       decoration: const InputDecoration(
-                        labelText: 'Endereço',
-                        hintText: 'Informe seu endereço',
+                        labelText: 'Endereço (integração futura)',
+                        hintText: 'Ainda não disponível para edição',
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    _textoAuxiliar(
+                      'E-mail e endereço ainda não podem ser alterados nesta integração. '
+                      'Nome e telefone são salvos no servidor.',
                     ),
                   ],
 
@@ -565,19 +707,29 @@ class _PerfilPageState extends State<PerfilPage> {
                   const SizedBox(height: 8),
 
                   DicaCampo(
-                    'A senha deve ter no mínimo 6 caracteres, '
-                    '1 letra maiúscula e 1 caractere especial.',
+                    'A senha deve ter entre 8 e 72 caracteres, '
+                    'com letra maiúscula, número e caractere especial.',
                   ),
 
                   const SizedBox(height: 24),
 
                   if (!isAdmin) ...[
-                    // RESTRIÇÕES ALIMENTARES
-                    _tituloSecao('Restrições alimentares'),
+                    // PREFERÊNCIAS PESSOAIS PRIVADAS
+                    if (carregandoPreferencias)
+                      const Center(child: CircularProgressIndicator()),
+                    if (!preferenciasCarregadas && !carregandoPreferencias)
+                      TextButton.icon(
+                        onPressed: _carregarPreferencias,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Tentar carregar preferências'),
+                      ),
+                    _tituloSecao('Preferências alimentares (opcional)'),
                     const SizedBox(height: 8),
 
                     _textoAuxiliar(
-                      'Selecione todas as opções que se aplicam a você.',
+                      'Essas opções podem revelar condições de saúde. '
+                      'Você decide se deseja fornecê-las e pode apagá-las '
+                      'a qualquer momento. Elas não garantem a segurança dos produtos.',
                     ),
 
                     const SizedBox(height: 10),
@@ -601,43 +753,76 @@ class _PerfilPageState extends State<PerfilPage> {
                                 ? DVanilleColors.darkBorder
                                 : DVanilleColors.line,
                           ),
-                          onSelected: (valor) {
-                            setState(() {
-                              if (valor) {
-                                if (e.key == 'nenhuma') {
-                                  restricoes
-                                    ..clear()
-                                    ..add('nenhuma');
-                                } else {
-                                  restricoes
-                                    ..remove('nenhuma')
-                                    ..add(e.key);
-                                }
-                              } else {
-                                restricoes.remove(e.key);
-                              }
+                          onSelected:
+                              preferenciasCarregadas && !salvando && !apagando
+                                  ? (valor) {
+                                      setState(() {
+                                        if (valor) {
+                                          if (e.key == 'nenhuma') {
+                                            restricoes
+                                              ..clear()
+                                              ..add('nenhuma');
+                                          } else {
+                                            restricoes
+                                              ..remove('nenhuma')
+                                              ..add(e.key);
+                                          }
+                                        } else {
+                                          restricoes.remove(e.key);
+                                        }
 
-                              mensagem = null;
-                            });
-                          },
+                                        mensagem = null;
+                                        if (restricoes.isEmpty ||
+                                            restricoes.contains('nenhuma')) {
+                                          autorizouDadosAlimentares = false;
+                                        }
+                                      });
+                                    }
+                                  : null,
                         );
                       }).toList(),
                     ),
 
+                    if (restricoes.any((r) => r != 'nenhuma')) ...[
+                      const SizedBox(height: 12),
+                      CheckboxListTile(
+                        value: autorizouDadosAlimentares,
+                        onChanged: preferenciasCarregadas &&
+                                !salvando &&
+                                !apagando
+                            ? (valor) => setState(() {
+                                  autorizouDadosAlimentares = valor ?? false;
+                                  mensagem = null;
+                                })
+                            : null,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        activeColor: corCheck,
+                        title: Text(
+                          'Autorizo salvar ou atualizar estas opções alimentares '
+                          'na minha conta.',
+                          style: TextStyle(fontSize: 13, color: corTexto),
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 24),
 
-                    // PREFERÊNCIAS
+                    // NOTIFICAÇÕES
                     _tituloSecao('Preferências'),
                     const SizedBox(height: 8),
 
                     CheckboxListTile(
                       value: notificacoes,
-                      onChanged: (valor) {
-                        setState(() {
-                          notificacoes = valor ?? false;
-                          mensagem = null;
-                        });
-                      },
+                      onChanged:
+                          preferenciasCarregadas && !salvando && !apagando
+                              ? (valor) {
+                                  setState(() {
+                                    notificacoes = valor ?? false;
+                                    mensagem = null;
+                                  });
+                                }
+                              : null,
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                       activeColor: corCheck,
@@ -652,6 +837,15 @@ class _PerfilPageState extends State<PerfilPage> {
                       ),
                     ),
 
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed:
+                          preferenciasCarregadas && !salvando && !apagando
+                              ? _apagarPreferencias
+                              : null,
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Apagar minhas preferências pessoais'),
+                    ),
                     const SizedBox(height: 16),
                   ],
 
@@ -688,8 +882,20 @@ class _PerfilPageState extends State<PerfilPage> {
                     runSpacing: 12,
                     children: [
                       FilledButton(
-                        onPressed: _salvar,
-                        child: const Text('Salvar alterações'),
+                        onPressed: (salvando ||
+                                apagando ||
+                                carregandoPreferencias ||
+                                (!isAdmin && !preferenciasCarregadas))
+                            ? null
+                            : _salvar,
+                        child: salvando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Salvar alterações'),
                       ),
                       if (!isAdmin) ...[
                         OutlinedButton(
