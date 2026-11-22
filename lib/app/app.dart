@@ -117,8 +117,7 @@ class DVanilleApp extends StatelessWidget {
   String _rotaInicial() {
     final uri = Uri.base;
 
-    debugPrint('URL COMPLETA: $uri');
-    debugPrint('FRAGMENTO: ${uri.fragment}');
+    // Não registrar a URL: o fragmento pode conter token de recuperação.
 
     final fragmento = uri.fragment;
 
@@ -127,6 +126,12 @@ class DVanilleApp extends StatelessWidget {
       final caminhoFragmento = rotaFragmento?.path;
 
       if (caminhoFragmento != null && caminhoFragmento.startsWith('/')) {
+        // A recuperação contém um token na query do fragmento. Preserve-o
+        // somente até o gerador da rota receber e interpretar o link.
+        if (caminhoFragmento == Routes.recuperarSenha &&
+            rotaFragmento!.queryParameters.containsKey('token')) {
+          return rotaFragmento.toString();
+        }
         return caminhoFragmento;
       }
     }
@@ -135,6 +140,12 @@ class DVanilleApp extends StatelessWidget {
 
     if (caminho.isEmpty || caminho == '/') {
       return Routes.home;
+    }
+
+    // Também aceita links no formato /recuperar-senha?token=...
+    if (caminho == Routes.recuperarSenha &&
+        uri.queryParameters.containsKey('token')) {
+      return '$caminho?${uri.query}';
     }
 
     return caminho;
@@ -178,8 +189,38 @@ class DVanilleApp extends StatelessWidget {
   Route<dynamic>? _gerarRota(RouteSettings settings) {
     final state = AppState.instance;
 
-    var nome = settings.name ?? Routes.home;
+    // Links enviados pelo Gmail incluem "?token=...". A rota deve ser
+    // comparada apenas pelo caminho, nunca pela query completa.
+    final uriRota = Uri.tryParse(settings.name ?? Routes.home);
+    var nome = uriRota?.path ?? Routes.home;
+    if (nome.isEmpty) nome = Routes.home;
     var argumentos = settings.arguments;
+
+    // O token é entregue diretamente à página, sem ser exposto em logs nem
+    // salvo no estado global. Caso o Flutter tenha normalizado o nome da
+    // rota, ainda o recuperamos do endereço original do navegador.
+    String? tokenRecuperacao;
+    var veioDeLinkRecuperacao = false;
+    if (nome == Routes.recuperarSenha) {
+      final uriNavegador = Uri.base;
+      final uriFragmento = Uri.tryParse(uriNavegador.fragment);
+      final temTokenNaRota = uriRota?.queryParameters.containsKey('token') ?? false;
+      final temTokenNoFragmento = uriFragmento?.path == Routes.recuperarSenha &&
+          (uriFragmento?.queryParameters.containsKey('token') ?? false);
+      final temTokenNaQuery = uriNavegador.path == Routes.recuperarSenha &&
+          uriNavegador.queryParameters.containsKey('token');
+
+      veioDeLinkRecuperacao = temTokenNaRota ||
+          temTokenNoFragmento ||
+          temTokenNaQuery;
+      tokenRecuperacao = temTokenNaRota
+          ? uriRota?.queryParameters['token']
+          : temTokenNoFragmento
+              ? uriFragmento?.queryParameters['token']
+              : temTokenNaQuery
+                  ? uriNavegador.queryParameters['token']
+                  : null;
+    }
 
     if (Routes.administrativas.contains(nome) && !state.isAdmin) {
       showToast('Acesso restrito ao administrador.', '⚠️');
@@ -197,7 +238,12 @@ class DVanilleApp extends StatelessWidget {
       nome = Routes.login;
     }
 
-    final builder = _paginas[nome] ?? _paginas[Routes.home]!;
+    final WidgetBuilder builder = nome == Routes.recuperarSenha
+        ? (_) => RecuperarSenhaPage(
+              tokenInicial: tokenRecuperacao,
+              abertoPorLink: veioDeLinkRecuperacao,
+            )
+        : (_paginas[nome] ?? _paginas[Routes.home]!);
 
     return PageRouteBuilder<dynamic>(
       settings: RouteSettings(

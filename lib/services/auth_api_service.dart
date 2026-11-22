@@ -160,6 +160,29 @@ class AuthApiService {
     return session;
   }
 
+  /// Solicita um e-mail de recuperação; a API não revela se a conta existe.
+  /// POST /api/auth/forgot-password
+  Future<void> solicitarRecuperacaoSenha({required String email}) async {
+    await _send(
+      'POST',
+      '/auth/forgot-password',
+      data: {'email': email.trim().toLowerCase()},
+    );
+  }
+
+  /// Troca a senha por meio de um link temporário de uso único.
+  /// POST /api/auth/reset-password. Não armazena o token nem a nova senha.
+  Future<void> redefinirSenha({
+    required String token,
+    required String novaSenha,
+  }) async {
+    await _send(
+      'POST',
+      '/auth/reset-password',
+      data: {'token': token, 'newPassword': novaSenha},
+    );
+  }
+
   /// Cadastro atômico: dados básicos e preferências opcionais.
   /// Os rótulos devem ser os exatos aceitos pelo backend.
   Future<AuthSession> register({
