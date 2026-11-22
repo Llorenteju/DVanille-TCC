@@ -7,6 +7,10 @@ class Nutricional {
   double fibras;
   double acucares;
 
+  /// Para registros da API: indica quais valores foram efetivamente
+  /// informados no banco. `null` preserva a exibição dos dados do protótipo.
+  final Set<String>? camposInformados;
+
   Nutricional({
     this.calorias = 0,
     this.carboidratos = 0,
@@ -14,16 +18,23 @@ class Nutricional {
     this.gorduras = 0,
     this.fibras = 0,
     this.acucares = 0,
+    this.camposInformados,
   });
 
-  /// Mesma ordem de linhas da tabela do protótipo HTML.
+  String _valor(String campo, double valor, String unidade) {
+    if (camposInformados != null && !camposInformados!.contains(campo)) {
+      return 'Não informado';
+    }
+    return '${_n(valor)} $unidade';
+  }
+
   List<List<String>> get linhas => [
-        ['Calorias', '${_n(calorias)} kcal'],
-        ['Carboidratos', '${_n(carboidratos)} g'],
-        ['Proteínas', '${_n(proteinas)} g'],
-        ['Gorduras', '${_n(gorduras)} g'],
-        ['Fibras', '${_n(fibras)} g'],
-        ['Açúcares', '${_n(acucares)} g'],
+        ['Calorias', _valor('calorias', calorias, 'kcal')],
+        ['Carboidratos', _valor('carboidratos', carboidratos, 'g')],
+        ['Proteínas', _valor('proteinas', proteinas, 'g')],
+        ['Gorduras', _valor('gorduras', gorduras, 'g')],
+        ['Fibras', _valor('fibras', fibras, 'g')],
+        ['Açúcares', _valor('acucares', acucares, 'g')],
       ];
 
   static String _n(double v) =>

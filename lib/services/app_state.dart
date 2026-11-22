@@ -13,6 +13,8 @@ import '../models/reserva.dart';
 import '../models/usuario.dart';
 import '../models/vale_presente.dart';
 import 'validade_vale.dart';
+import 'auth_api_service.dart';
+import 'produto_api_service.dart';
 
 /// Configuração de uma promoção de um produto já cadastrado.
 /// As datas são inclusivas: uma promoção com término em 10/11
@@ -126,21 +128,21 @@ class AppState extends ChangeNotifier {
 
   /// Recupera os usuários salvos no navegador.
   ///
-  /// Na primeira execução, mantém e salva os usuários de demonstração.
+  /// Mantém os dados de demonstração separados da autenticação da API.
   Future<void> carregarDados() async {
     // Produtos primeiro, depois ofertas (que recalculam os preços exibidos).
     await carregarProdutos();
     await _carregarOfertas();
     await carregarValesPresentes();
+    // Restaura a sessão antes de buscar o catálogo.
+    await restaurarSessaoApi();
+    await carregarCatalogoApi();
     try {
       final preferencias = await SharedPreferences.getInstance();
       final dadosSalvos = preferencias.getString(_chaveUsuarios);
 
-      // Primeira execução: salva os usuários de demonstração.
-      if (dadosSalvos == null) {
-        await salvarUsuarios();
-        return;
-      }
+      // Usuários fictícios não precisam ser persistidos.
+      if (dadosSalvos == null) return;
 
       final List<dynamic> dados = jsonDecode(dadosSalvos);
 
@@ -151,7 +153,8 @@ class AppState extends ChangeNotifier {
           id: usuario['id'] as int,
           nome: usuario['nome'] as String,
           email: usuario['email'] as String,
-          senha: usuario['senha'] as String,
+          // Não restaura senhas em texto claro de versões antigas.
+          senha: '',
           telefone: usuario['telefone'] as String? ?? '',
           endereco: usuario['endereco'] as String? ?? '',
           dataNascimento: usuario['dataNascimento'] == null
@@ -171,6 +174,8 @@ class AppState extends ChangeNotifier {
         ..clear()
         ..addAll(usuariosCarregados);
 
+      // Sobrescreve qualquer persistência legada, sem armazenar senhas.
+      await salvarUsuarios();
       notifyListeners();
     } catch (e) {
       debugPrint('Erro ao carregar usuários: $e');
@@ -187,7 +192,7 @@ class AppState extends ChangeNotifier {
           'id': usuario.id,
           'nome': usuario.nome,
           'email': usuario.email,
-          'senha': usuario.senha,
+          // Senhas nunca devem ir para SharedPreferences.
           'telefone': usuario.telefone,
           'endereco': usuario.endereco,
           'dataNascimento': usuario.dataNascimento?.toIso8601String(),
@@ -489,6 +494,61 @@ class AppState extends ChangeNotifier {
 
   // ----------------- banco de dados em memória -----------------
 
+  // O catálogo da API é carregado após os dados locais de demonstração.
+  // Se a API falhar no primeiro carregamento, não exibimos produtos fictícios.
+  final ProdutoApiService _produtoApi = ProdutoApiService();
+  bool catalogoApiAtivo = false;
+  bool carregandoCatalogoApi = false;
+  String? erroCatalogoApi;
+  List<String> categoriasNaoMapeadasApi = [];
+
+  Future<void> carregarCatalogoApi() async {
+    if (carregandoCatalogoApi) return;
+    carregandoCatalogoApi = true;
+    erroCatalogoApi = null;
+    notifyListeners();
+    try {
+      final resultado = await _produtoApi.listarCatalogo();
+      // Resposta válida (até vazia) substitui os dados demonstrativos.
+      // Nunca escrevemos esses registros de volta ao navegador ou ao banco.
+      produtos
+        ..clear()
+        ..addAll(resultado.produtos);
+      categoriasNaoMapeadasApi = resultado.categoriasNaoMapeadas;
+      catalogoApiAtivo = true;
+      _precosBase.clear();
+      _ofertasConfiguradas.clear();
+      for (final produto in produtos) {
+        final original = produto.precoAntigo ?? produto.preco;
+        _precosBase[produto.id] = original;
+        if (produto.oferta &&
+            produto.precoAntigo != null &&
+            original > produto.preco) {
+          _ofertasConfiguradas[produto.id] = OfertaConfigurada(
+            produtoId: produto.id,
+            precoOriginal: original,
+            percentual: (1 - produto.preco / original) * 100,
+          );
+        }
+      }
+      _atualizarOfertasPorValidade();
+      _atualizarPrecosNoCarrinho();
+    } catch (e) {
+      if (!catalogoApiAtivo) {
+        // Sem consulta real confirmada, não apresentar dados fictícios como
+        // produtos aptos a pessoas com alergias ou restrições alimentares.
+        produtos.clear();
+        _precosBase.clear();
+        _ofertasConfiguradas.clear();
+      }
+      erroCatalogoApi = '$e';
+      debugPrint('Não foi possível consultar o catálogo PostgreSQL: $e');
+    } finally {
+      carregandoCatalogoApi = false;
+      notifyListeners();
+    }
+  }
+
   final List<Produto> produtos = seedProdutos();
   final List<Usuario> usuarios = seedUsuarios();
   final List<Pedido> pedidos = seedPedidos();
@@ -496,6 +556,34 @@ class AppState extends ChangeNotifier {
   final List<ValePresente> valePresentes = seedValePresentes();
 
   // ----------------- sessão -----------------
+
+  /// Sessão JWT apenas em memória durante os testes de autenticação da API.
+  final AuthApiService _authApi = AuthApiService();
+  bool get logadoPelaApi => _authApi.isAuthenticated;
+
+  /// Após F5, confere com /api/auth/me a sessão guardada em cookie HttpOnly.
+  Future<void> restaurarSessaoApi() async {
+    try {
+      final usuario = await _authApi.restaurarSessao();
+      if (usuario == null) {
+        usuarioLogado = null;
+      } else {
+        usuarioLogado = Usuario(
+          id: usuario.id,
+          nome: usuario.name,
+          email: usuario.email,
+          senha: '',
+          telefone: usuario.phone,
+          tipo: usuario.isAdmin ? 'admin' : 'cliente',
+        );
+      }
+      notifyListeners();
+    } catch (erro) {
+      debugPrint('Não foi possível restaurar sessão: $erro');
+      usuarioLogado = null;
+      notifyListeners();
+    }
+  }
 
   Usuario? usuarioLogado;
 
@@ -712,24 +800,40 @@ class AppState extends ChangeNotifier {
 
   // ================= autenticação =================
 
-  /// Retorna null quando o login funciona ou uma mensagem de erro.
-  String? login(
-    String email,
-    String senha,
-  ) {
-    for (final usuario in usuarios) {
-      if (usuario.email.toLowerCase() == email.trim().toLowerCase() &&
-          usuario.senha == senha) {
-        usuarioLogado = usuario;
-        notifyListeners();
-        return null;
-      }
+  /// Login real na API; não armazena a senha no navegador.
+  Future<String?> loginComApi(String email, String senha) async {
+    try {
+      final sessao = await _authApi.login(email: email, password: senha);
+      usuarioLogado = Usuario(
+        id: sessao.user.id,
+        nome: sessao.user.name,
+        email: sessao.user.email,
+        senha: '',
+        telefone: sessao.user.phone,
+        tipo: sessao.user.isAdmin ? 'admin' : 'cliente',
+      );
+      notifyListeners();
+      return null;
+    } on DVanilleApiException catch (e) {
+      return e.message;
+    } catch (e) {
+      debugPrint('Erro inesperado no login: $e');
+      return 'Não foi possível realizar o login. Tente novamente.';
     }
-
-    return 'E-mail ou senha inválidos.';
   }
 
+  /// Compatibilidade com telas antigas: impede login fictício por seed local.
+  /// Use loginComApi nas telas de autenticação.
+  @Deprecated('Login local desativado. Use loginComApi.')
+  String? login(String email, String senha) =>
+      'O login local foi desativado. Utilize a autenticação pelo servidor.';
+
   void logout() {
+    if (_authApi.isAuthenticated) {
+      unawaited(_authApi.logout().catchError((Object e) {
+        debugPrint('Falha ao revogar token no servidor: $e');
+      }));
+    }
     usuarioLogado = null;
     notifyListeners();
   }
@@ -738,17 +842,57 @@ class AppState extends ChangeNotifier {
         (usuario) => usuario.email.toLowerCase() == email.trim().toLowerCase(),
       );
 
-  /// Senha com no mínimo seis caracteres, uma maiúscula
-  /// e um caractere especial.
+  /// Senha compatível com o backend e com a regra visual original:
+  /// 8 a 72 caracteres, maiúscula, número e caractere especial.
   static bool senhaValida(String senha) {
     final temMaiuscula = RegExp(r'[A-Z]').hasMatch(senha);
     final temEspecial = RegExp(r'[^A-Za-z0-9]').hasMatch(senha);
 
-    return senha.length >= 6 && temMaiuscula && temEspecial;
+    final temNumero = RegExp(r'[0-9]').hasMatch(senha);
+    return senha.length >= 8 &&
+        senha.length <= 72 &&
+        temMaiuscula &&
+        temEspecial &&
+        temNumero;
   }
 
   // ================= cadastro =================
 
+  /// Registra na API e mantém os campos extras apenas nesta sessão.
+  /// Até o backend suportar os campos, eles NÃO são salvos no Supabase.
+  Future<Usuario> cadastrarComApi({
+    required String nome,
+    required String email,
+    required String telefone,
+    required String senha,
+    required DateTime dataNascimento,
+    required List<String> restricoes,
+    required bool notificacoes,
+  }) async {
+    final sessao = await _authApi.register(
+      name: nome,
+      email: email,
+      phone: telefone,
+      password: senha,
+    );
+    final usuario = Usuario(
+      id: sessao.user.id,
+      nome: sessao.user.name,
+      email: sessao.user.email,
+      senha: '',
+      telefone: sessao.user.phone,
+      tipo: sessao.user.isAdmin ? 'admin' : 'cliente',
+      dataNascimento: dataNascimento,
+      restricoes: List<String>.from(restricoes),
+      notificacoes: notificacoes,
+    );
+    usuarioLogado = usuario;
+    notifyListeners();
+    return usuario;
+  }
+
+  /// Compatibilidade de assinatura: impede criação de contas apenas locais.
+  @Deprecated('Cadastro local desativado. Use cadastrarComApi.')
   Usuario cadastrar({
     required String nome,
     required String email,
@@ -758,33 +902,7 @@ class AppState extends ChangeNotifier {
     required List<String> restricoes,
     required bool notificacoes,
   }) {
-    var maiorId = 0;
-
-    for (final usuarioExistente in usuarios) {
-      if (usuarioExistente.id > maiorId) {
-        maiorId = usuarioExistente.id;
-      }
-    }
-
-    final usuario = Usuario(
-      id: maiorId + 1,
-      nome: nome,
-      email: email,
-      senha: senha,
-      telefone: telefone,
-      dataNascimento: dataNascimento,
-      tipo: 'cliente',
-      restricoes: restricoes,
-      notificacoes: notificacoes,
-    );
-
-    usuarios.add(usuario);
-    usuarioLogado = usuario;
-
-    notifyListeners();
-    _salvarUsuariosAutomaticamente();
-
-    return usuario;
+    throw StateError('Cadastro local desativado. Utilize a API.');
   }
 
   // ================= atualização de perfil =================
@@ -806,6 +924,11 @@ class AppState extends ChangeNotifier {
 
     if (usuario == null) {
       return 'Entre na sua conta para editar o perfil.';
+    }
+
+    if (logadoPelaApi) {
+      return 'A edição do perfil conectado ao servidor será habilitada '
+          'na próxima etapa da integração.';
     }
 
     final emailNormalizado = email.trim().toLowerCase();
@@ -840,8 +963,8 @@ class AppState extends ChangeNotifier {
       }
 
       if (!senhaValida(novaSenha)) {
-        return 'A nova senha deve ter no mínimo 6 caracteres, '
-            '1 letra maiúscula e 1 caractere especial.';
+        return 'A nova senha deve ter entre 8 e 72 caracteres, '
+            '1 letra maiúscula, 1 número e 1 caractere especial.';
       }
 
       if (novaSenha == usuario.senha) {

@@ -156,7 +156,51 @@ class _CardapioPageState extends State<CardapioPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (recomendados.isNotEmpty) ...[
+                    if (state.carregandoCatalogoApi) ...[
+                      const LinearProgressIndicator(),
+                      const SizedBox(height: 16),
+                    ],
+                    if (state.erroCatalogoApi != null) ...[
+                      InfoBox(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              state.catalogoApiAtivo
+                                  ? 'Catálogo temporariamente desatualizado'
+                                  : 'Catálogo indisponível',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('O Supabase não pôde ser consultado: '
+                                '${state.erroCatalogoApi}'),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: state.carregandoCatalogoApi
+                                  ? null
+                                  : () {
+                                      state.carregarCatalogoApi();
+                                    },
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Tentar novamente'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (state.categoriasNaoMapeadasApi.isNotEmpty &&
+                        state.catalogoApiAtivo) ...[
+                      Text(
+                        'Há categorias do banco ainda não associadas aos filtros: '
+                        '${state.categoriasNaoMapeadasApi.join(', ')}. '
+                        'Esses produtos aparecem em Todas.',
+                        style: TextStyle(color: corTitulo, fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (recomendados.isNotEmpty && !state.catalogoApiAtivo) ...[
                       Text(
                         'Recomendado para você',
                         style: TextStyle(

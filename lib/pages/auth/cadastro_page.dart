@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app.dart';
 import '../../data/mock_data.dart';
 import '../../services/app_state.dart';
+import '../../services/auth_api_service.dart';
 import '../../services/navigation.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/page_shell.dart';
@@ -33,6 +34,7 @@ class _CadastroPageState extends State<CadastroPage> {
   DateTime? dataNascimentoSelecionada;
   final Set<String> restricoes = {};
   bool notificacoes = true;
+  bool cadastrando = false;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
 
@@ -121,8 +123,6 @@ class _CadastroPageState extends State<CadastroPage> {
   }
 
   void _continuar() {
-    final state = AppState.instance;
-
     if (nome.text.trim().isEmpty ||
         email.text.trim().isEmpty ||
         telefone.text.trim().isEmpty ||
@@ -133,15 +133,11 @@ class _CadastroPageState extends State<CadastroPage> {
       return;
     }
 
-    if (state.emailJaCadastrado(email.text.trim())) {
-      setState(() => erro = 'Este e-mail já está cadastrado.');
-      return;
-    }
-
+    // A existência do e-mail é verificada pelo backend (Supabase).
     if (!AppState.senhaValida(senha.text)) {
       setState(() {
-        erro = 'A senha deve ter no mínimo 6 caracteres, '
-            '1 letra maiúscula e 1 caractere especial.';
+        erro = 'A senha deve ter entre 8 e 72 caracteres, '
+            '1 letra maiúscula, 1 número e 1 caractere especial.';
       });
       return;
     }
@@ -182,11 +178,10 @@ class _CadastroPageState extends State<CadastroPage> {
     });
   }
 
-  void _concluir() {
+  Future<void> _concluir() async {
+    if (cadastrando) return;
     if (restricoes.isEmpty) {
-      setState(() {
-        erro = 'Selecione uma opção ou escolha "Nenhuma".';
-      });
+      setState(() => erro = 'Selecione uma opção ou escolha "Nenhuma".');
       return;
     }
 
@@ -199,24 +194,43 @@ class _CadastroPageState extends State<CadastroPage> {
       return;
     }
 
-    AppState.instance.cadastrar(
-      nome: nome.text.trim(),
-      email: email.text.trim(),
-      telefone: telefone.text.trim(),
-      senha: senha.text,
-      dataNascimento: nascimento,
-      restricoes: restricoes.where((r) => r != 'nenhuma').toList(),
-      notificacoes: notificacoes,
-    );
+    setState(() {
+      cadastrando = true;
+      erro = null;
+    });
 
-    showToast('Cadastro realizado com sucesso!', '🎉');
+    try {
+      // Cadastro real na API Node.js/PostgreSQL.
+      // Restrições e demais preferências ainda ficam só nesta sessão.
+      await AppState.instance.cadastrarComApi(
+        nome: nome.text.trim(),
+        email: email.text.trim(),
+        telefone: telefone.text.trim(),
+        senha: senha.text,
+        dataNascimento: nascimento,
+        restricoes: restricoes.where((r) => r != 'nenhuma').toList(),
+        notificacoes: notificacoes,
+      );
 
-    final destino = redirecionamento;
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      destino?.rota ?? Routes.home,
-      (r) => false,
-      arguments: destino?.argumentos,
-    );
+      if (!mounted) return;
+      showToast('Cadastro realizado com sucesso!', '🎉');
+
+      final destino = redirecionamento;
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        destino?.rota ?? Routes.home,
+        (r) => false,
+        arguments: destino?.argumentos,
+      );
+    } on DVanilleApiException catch (e) {
+      if (mounted) setState(() => erro = e.message);
+    } catch (e) {
+      if (mounted) {
+        setState(() =>
+            erro = 'Não foi possível concluir o cadastro. Tente novamente.');
+      }
+    } finally {
+      if (mounted) setState(() => cadastrando = false);
+    }
   }
 
   // Ícone de olho com a mesma paleta do restante do formulário.
@@ -338,7 +352,7 @@ class _CadastroPageState extends State<CadastroPage> {
         Align(
           alignment: Alignment.centerLeft,
           child: DicaCampo(
-            'Mínimo 6 caracteres, com 1 letra maiúscula e 1 caractere especial.',
+            'Entre 8 e 72 caracteres, com 1 letra maiúscula, 1 número e 1 caractere especial.',
           ),
         ),
         const SizedBox(height: 14),
@@ -483,11 +497,25 @@ class _CadastroPageState extends State<CadastroPage> {
           ),
         ),
         const SizedBox(height: 12),
+        Text(
+          'Nesta etapa de integração, data de nascimento, restrições '
+          'alimentares e preferência de notificações não são salvas no '
+          'servidor. Elas serão mantidas somente nesta sessão.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: corTextoSecundario),
+        ),
+        const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: _concluir,
-            child: const Text('Concluir cadastro'),
+            onPressed: cadastrando ? null : _concluir,
+            child: cadastrando
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Concluir cadastro'),
           ),
         ),
       ],

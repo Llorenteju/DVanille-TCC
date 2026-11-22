@@ -20,6 +20,7 @@ class _LoginPageState extends State<LoginPage> {
 
   String? erro;
   bool mostrarSenha = false;
+  bool entrando = false;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
 
@@ -50,21 +51,34 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _entrar() {
-    final mensagem = AppState.instance.login(
+  Future<void> _entrar() async {
+    if (entrando) return;
+
+    if (email.text.trim().isEmpty || senha.text.isEmpty) {
+      setState(() => erro = 'Informe seu e-mail e sua senha.');
+      return;
+    }
+
+    setState(() {
+      entrando = true;
+      erro = null;
+    });
+
+    // Login de verdade: POST /api/auth/login (backend Node.js).
+    final mensagem = await AppState.instance.loginComApi(
       email.text,
       senha.text,
     );
+
+    if (!mounted) return;
+    setState(() => entrando = false);
 
     if (mensagem != null) {
       setState(() => erro = mensagem);
       return;
     }
 
-    showToast(
-      'Login realizado com sucesso!',
-      'palmas.svg',
-    );
+    showToast('Login realizado com sucesso!', 'palmas.svg');
 
     final arg = ModalRoute.of(context)?.settings.arguments;
     final navigator = Navigator.of(context);
@@ -85,6 +99,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _abrirPaginaAutenticacao(String rota) {
+    if (entrando) return;
     Navigator.pushNamed(
       context,
       rota,
@@ -130,14 +145,14 @@ class _LoginPageState extends State<LoginPage> {
                   if (erro != null) CaixaAlerta(erro!),
                   TextField(
                     controller: email,
+                    enabled: !entrando,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'E-mail',
-                    ),
+                    decoration: const InputDecoration(labelText: 'E-mail'),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: senha,
+                    enabled: !entrando,
                     obscureText: !mostrarSenha,
                     autocorrect: false,
                     enableSuggestions: false,
@@ -147,9 +162,11 @@ class _LoginPageState extends State<LoginPage> {
                       suffixIcon: IconButton(
                         tooltip:
                             mostrarSenha ? 'Ocultar senha' : 'Mostrar senha',
-                        onPressed: () => setState(() {
-                          mostrarSenha = !mostrarSenha;
-                        }),
+                        onPressed: entrando
+                            ? null
+                            : () => setState(() {
+                                  mostrarSenha = !mostrarSenha;
+                                }),
                         icon: Icon(
                           mostrarSenha
                               ? Icons.visibility_off_outlined
@@ -162,28 +179,32 @@ class _LoginPageState extends State<LoginPage> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: _entrar,
+                      onPressed: entrando ? null : _entrar,
                       style: isDark
                           ? FilledButton.styleFrom(
                               backgroundColor: DVanilleColors.darkRose,
                               foregroundColor: DVanilleColors.darkCream,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 16,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
                               textStyle: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                               ),
                             )
                           : null,
-                      child: const Text('Entrar'),
+                      child: entrando
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Entrar'),
                     ),
                   ),
                   const SizedBox(height: 10),
                   TextButton(
-                    onPressed: () => _abrirPaginaAutenticacao(
-                      Routes.recuperarSenha,
-                    ),
+                    onPressed: entrando
+                        ? null
+                        : () => _abrirPaginaAutenticacao(Routes.recuperarSenha),
                     child: const Text('Esqueci minha senha'),
                   ),
                   Row(
@@ -191,9 +212,9 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       const Text('Ainda não tem conta?'),
                       TextButton(
-                        onPressed: () => _abrirPaginaAutenticacao(
-                          Routes.cadastro,
-                        ),
+                        onPressed: entrando
+                            ? null
+                            : () => _abrirPaginaAutenticacao(Routes.cadastro),
                         child: const Text('Criar conta'),
                       ),
                     ],
