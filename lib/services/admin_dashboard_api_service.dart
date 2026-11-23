@@ -139,7 +139,7 @@ class AdminDashboardApiService {
         headers: {
           'Accept': 'application/json',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 45));
     } on TimeoutException {
       throw const AdminDashboardApiException('A API demorou para responder.');
     } catch (_) {
