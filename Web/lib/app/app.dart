@@ -1,0 +1,330 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
+import '../pages/admin/admin_dashboard_page.dart';
+import '../pages/admin/admin_ofertas_page.dart';
+import '../pages/admin/admin_pedidos_page.dart';
+import '../pages/admin/admin_produto_form_page.dart';
+import '../pages/admin/admin_produto_detalhes_page.dart';
+import '../pages/admin/admin_produtos_page.dart';
+import '../pages/admin/admin_reservas_page.dart';
+import '../pages/admin/admin_usuarios_page.dart';
+import '../pages/admin/admin_vale_presentes_page.dart';
+import '../pages/auth/cadastro_page.dart';
+import '../pages/auth/login_page.dart';
+import '../pages/auth/recuperar_senha_page.dart';
+import '../pages/cardapio/cardapio_page.dart';
+import '../pages/cardapio/produto_page.dart';
+import '../pages/cliente/acompanhar_pedido_page.dart';
+import '../pages/cliente/carrinho_page.dart';
+import '../pages/cliente/checkout_page.dart';
+import '../pages/cliente/comanda_mesa_page.dart';
+import '../pages/cliente/meus_pedidos_page.dart';
+import '../pages/cliente/meus_vales_presente_page.dart';
+import '../pages/cliente/minhas_reservas_page.dart';
+import '../pages/cliente/pedido_confirmado_page.dart';
+import '../pages/cliente/perfil_page.dart';
+import '../pages/cliente/reserva_confirmada_page.dart';
+import '../pages/cliente/reservas_page.dart';
+import '../pages/cliente/vales_compra_confirmada_page.dart';
+import '../pages/conheca/conheca_page.dart';
+import '../pages/apresentacao/apresentacao_site_page.dart';
+import '../pages/contato/contato_page.dart';
+import '../pages/home/home_page.dart';
+import '../pages/ofertas/ofertas_page.dart';
+import '../pages/shopping/shopping_page.dart';
+import '../services/app_state.dart';
+import '../services/navigation.dart';
+import '../theme/app_theme.dart';
+
+class Routes {
+  static const home = '/';
+  static const conheca = '/conheca';
+  static const apresentacaoSite = '/apresentacao-site';
+  static const cardapio = '/cardapio';
+  static const produto = '/produto';
+
+  static const login = '/login';
+  static const cadastro = '/cadastro';
+  static const recuperarSenha = '/recuperar-senha';
+
+  static const perfil = '/perfil';
+  static const carrinho = '/carrinho';
+  static const checkout = '/checkout';
+  static const pedidoConfirmado = '/pedido-confirmado';
+  static const valesCompraConfirmada = '/vales-compra-confirmada';
+
+  static const meusPedidos = '/meus-pedidos';
+  static const meusValesPresente = '/meus-vales-presente';
+  static const minhasReservas = '/minhas-reservas';
+  static const acompanharPedido = '/pedido';
+  static const reservas = '/reservas';
+  static const reservaConfirmada = '/reserva-confirmada';
+
+  static const ofertas = '/ofertas';
+  static const shopping = '/shopping';
+  static const contato = '/contato';
+  static const comandaMesa = '/comanda-mesa';
+
+  static const admin = '/admin';
+  static const adminProdutos = '/admin-produtos';
+  static const adminOfertas = '/admin-ofertas';
+  static const adminProdutoForm = '/admin-produto-form';
+  static const adminProdutoDetalhes = '/admin-produto-detalhes';
+  static const adminPedidos = '/admin-pedidos';
+  static const adminReservas = '/admin-reservas';
+  static const adminValePresentes = '/admin-vale-presentes';
+  static const adminUsuarios = '/admin-usuarios';
+
+  static const privadas = <String>[
+    perfil,
+    carrinho,
+    checkout,
+    pedidoConfirmado,
+    valesCompraConfirmada,
+    meusPedidos,
+    meusValesPresente,
+    minhasReservas,
+    acompanharPedido,
+    reservas,
+    reservaConfirmada,
+    shopping,
+  ];
+
+  static const administrativas = <String>[
+    admin,
+    adminProdutos,
+    adminOfertas,
+    adminProdutoForm,
+    adminProdutoDetalhes,
+    adminPedidos,
+    adminReservas,
+    adminValePresentes,
+    adminUsuarios,
+  ];
+}
+
+class RedirecionamentoLogin {
+  final String rota;
+  final Object? argumentos;
+
+  const RedirecionamentoLogin(this.rota, this.argumentos);
+}
+
+class DVanilleApp extends StatelessWidget {
+  const DVanilleApp({super.key});
+
+  String _rotaInicial() {
+    final uri = Uri.base;
+
+    // Não registrar a URL: o fragmento pode conter token de recuperação.
+
+    final fragmento = uri.fragment;
+
+    if (fragmento.isNotEmpty) {
+      final rotaFragmento = Uri.tryParse(fragmento);
+      final caminhoFragmento = rotaFragmento?.path;
+
+      if (caminhoFragmento != null && caminhoFragmento.startsWith('/')) {
+        // A recuperação contém um token na query do fragmento. Preserve-o
+        // somente até o gerador da rota receber e interpretar o link.
+        if (caminhoFragmento == Routes.recuperarSenha &&
+            rotaFragmento!.queryParameters.containsKey('token')) {
+          return rotaFragmento.toString();
+        }
+        return caminhoFragmento;
+      }
+    }
+
+    final caminho = uri.path;
+
+    if (caminho.isEmpty || caminho == '/') {
+      return Routes.home;
+    }
+
+    // Também aceita links no formato /recuperar-senha?token=...
+    if (caminho == Routes.recuperarSenha &&
+        uri.queryParameters.containsKey('token')) {
+      return '$caminho?${uri.query}';
+    }
+
+    return caminho;
+  }
+
+  static final Map<String, WidgetBuilder> _paginas = {
+    Routes.home: (_) => const HomePage(),
+    Routes.conheca: (_) => const ConhecaPage(),
+    Routes.apresentacaoSite: (_) => const ApresentacaoSitePage(),
+    Routes.cardapio: (_) => const CardapioPage(),
+    Routes.produto: (_) => const ProdutoPage(),
+    Routes.login: (_) => const LoginPage(),
+    Routes.cadastro: (_) => const CadastroPage(),
+    Routes.recuperarSenha: (_) => const RecuperarSenhaPage(),
+    Routes.perfil: (_) => const PerfilPage(),
+    Routes.carrinho: (_) => const CarrinhoPage(),
+    Routes.checkout: (_) => const CheckoutPage(),
+    Routes.pedidoConfirmado: (_) => const PedidoConfirmadoPage(),
+    Routes.valesCompraConfirmada: (_) => const ValesCompraConfirmadaPage(),
+    Routes.meusPedidos: (_) => const MeusPedidosPage(),
+    Routes.meusValesPresente: (_) => const MeusValesPresentePage(),
+    Routes.minhasReservas: (_) => const MinhasReservasPage(),
+    Routes.acompanharPedido: (_) => const AcompanharPedidoPage(),
+    Routes.reservas: (_) => const ReservasPage(),
+    Routes.reservaConfirmada: (_) => const ReservaConfirmadaPage(),
+    Routes.ofertas: (_) => const OfertasPage(),
+    Routes.shopping: (_) => const ShoppingPage(),
+    Routes.contato: (_) => const ContatoPage(),
+    Routes.comandaMesa: (_) => const ComandaMesaPage(),
+    Routes.admin: (_) => const AdminDashboardPage(),
+    Routes.adminProdutos: (_) => const AdminProdutosPage(),
+    Routes.adminOfertas: (_) => const AdminOfertasPage(),
+    Routes.adminProdutoForm: (_) => const AdminProdutoFormPage(),
+    Routes.adminProdutoDetalhes: (_) => const AdminProdutoDetalhesPage(),
+    Routes.adminPedidos: (_) => const AdminPedidosPage(),
+    Routes.adminReservas: (_) => const AdminReservasPage(),
+    Routes.adminValePresentes: (_) => const AdminValePresentesPage(),
+    Routes.adminUsuarios: (_) => const AdminUsuariosPage(),
+  };
+
+  Route<dynamic>? _gerarRota(RouteSettings settings) {
+    final state = AppState.instance;
+
+    // Links enviados pelo Gmail incluem "?token=...". A rota deve ser
+    // comparada apenas pelo caminho, nunca pela query completa.
+    final uriRota = Uri.tryParse(settings.name ?? Routes.home);
+    var nome = uriRota?.path ?? Routes.home;
+    if (nome.isEmpty) nome = Routes.home;
+    var argumentos = settings.arguments;
+
+    // O token é entregue diretamente à página, sem ser exposto em logs nem
+    // salvo no estado global. Caso o Flutter tenha normalizado o nome da
+    // rota, ainda o recuperamos do endereço original do navegador.
+    String? tokenRecuperacao;
+    var veioDeLinkRecuperacao = false;
+    if (nome == Routes.recuperarSenha) {
+      final uriNavegador = Uri.base;
+      final uriFragmento = Uri.tryParse(uriNavegador.fragment);
+      final temTokenNaRota = uriRota?.queryParameters.containsKey('token') ?? false;
+      final temTokenNoFragmento = uriFragmento?.path == Routes.recuperarSenha &&
+          (uriFragmento?.queryParameters.containsKey('token') ?? false);
+      final temTokenNaQuery = uriNavegador.path == Routes.recuperarSenha &&
+          uriNavegador.queryParameters.containsKey('token');
+
+      veioDeLinkRecuperacao = temTokenNaRota ||
+          temTokenNoFragmento ||
+          temTokenNaQuery;
+      tokenRecuperacao = temTokenNaRota
+          ? uriRota?.queryParameters['token']
+          : temTokenNoFragmento
+              ? uriFragmento?.queryParameters['token']
+              : temTokenNaQuery
+                  ? uriNavegador.queryParameters['token']
+                  : null;
+    }
+
+    if (Routes.administrativas.contains(nome) && !state.isAdmin) {
+      showToast('Acesso restrito ao administrador.', '⚠️');
+
+      nome = state.logado ? Routes.home : Routes.login;
+      argumentos = null;
+    } else if (Routes.privadas.contains(nome) && !state.logado) {
+      showToast('Faça login para continuar.', '🔒');
+
+      argumentos = RedirecionamentoLogin(
+        nome,
+        settings.arguments,
+      );
+
+      nome = Routes.login;
+    }
+
+    final WidgetBuilder builder = nome == Routes.recuperarSenha
+        ? (_) => RecuperarSenhaPage(
+              tokenInicial: tokenRecuperacao,
+              abertoPorLink: veioDeLinkRecuperacao,
+            )
+        : (_paginas[nome] ?? _paginas[Routes.home]!);
+
+    return PageRouteBuilder<dynamic>(
+      settings: RouteSettings(
+        name: nome,
+        arguments: argumentos,
+      ),
+
+      // Duração da entrada e da saída da página.
+      transitionDuration: const Duration(milliseconds: 350),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
+
+      // Construção da página.
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return builder(context);
+      },
+
+      // Efeito visual da transição.
+      transitionsBuilder: (
+        context,
+        animation,
+        secondaryAnimation,
+        child,
+      ) {
+        final curva = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+
+        return FadeTransition(
+          opacity: curva,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.025, 0),
+              end: Offset.zero,
+            ).animate(curva),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppState.instance;
+
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) {
+        return MaterialApp(
+          title: "D'Vanille",
+          debugShowCheckedModeBanner: false,
+          navigatorKey: navigatorKey,
+          scaffoldMessengerKey: messengerKey,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: state.dark ? ThemeMode.dark : ThemeMode.light,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('pt', 'BR'),
+          ],
+          locale: const Locale('pt', 'BR'),
+          initialRoute: _rotaInicial(),
+          onGenerateRoute: _gerarRota,
+          builder: (context, child) {
+            final mq = MediaQuery.of(context);
+
+            return MediaQuery(
+              data: mq.copyWith(
+                textScaler: TextScaler.linear(state.fontScale),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+        );
+      },
+    );
+  }
+}
