@@ -84,7 +84,7 @@ class CartScreen extends StatelessWidget {
                             _qtyBtn(
                               context,
                               Icons.remove,
-                              () => state.decrementCartItem(item),
+                              () => _alterar(context, item, item.quantidade - 1),
                             ),
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -98,7 +98,7 @@ class CartScreen extends StatelessWidget {
                             _qtyBtn(
                               context,
                               Icons.add,
-                              () => state.incrementCartItem(item),
+                              () => _alterar(context, item, item.quantidade + 1),
                             ),
                           ],
                         ),
@@ -119,6 +119,14 @@ class CartScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  Future<void> _alterar(BuildContext context, CartItem item, int novaQuantidade) async {
+    try {
+      await AppState.instance.alterarQuantidadeOnline(item, novaQuantidade);
+    } catch (error) {
+      if (context.mounted) showBrandSnackBar(context, error.toString());
+    }
   }
 
   Widget _qtyBtn(BuildContext context, IconData icon, VoidCallback onTap) {
@@ -159,7 +167,7 @@ class _CartEmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
-              'carrinho.png',
+              'assets/carrinho.png',
               width: 90,
               height: 90,
               fit: BoxFit.contain,

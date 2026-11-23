@@ -19,7 +19,7 @@ class _OrderConfirmationScreenState extends State<OrderConfirmationScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    order ??= AppState.instance.createOrder();
+    order ??= AppState.instance.ultimoPedidoCriado;
   }
 
   String _currency(double value) =>
@@ -38,7 +38,10 @@ class _OrderConfirmationScreenState extends State<OrderConfirmationScreen> {
     return Scaffold(
       body: SafeArea(
         child: currentOrder == null
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(child: TextButton(
+                onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/main', (_) => false),
+                child: const Text('Pedido não encontrado. Voltar ao início.'),
+              ))
             : SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(22, 24, 22, 30),
                 child: Center(

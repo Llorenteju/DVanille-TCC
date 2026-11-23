@@ -42,14 +42,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   isFav ? Icons.favorite : Icons.favorite_border,
                   color: AppColors.danger,
                 ),
-                onPressed: () {
-                  state.toggleFavorite(p.id);
-                  showBrandSnackBar(
-                    context,
-                    isFav
-                        ? 'Removido dos favoritos.'
-                        : 'Adicionado aos favoritos.',
-                  );
+                onPressed: () async {
+                  try {
+                    final wasFavorite = state.isFavorite(p.id);
+                    await state.alternarFavoritoOnline(p.id);
+                    if (!mounted) return;
+                    showBrandSnackBar(context,
+                      wasFavorite ? 'Removido dos favoritos.' : 'Adicionado aos favoritos.');
+                  } catch (error) {
+                    if (mounted) showBrandSnackBar(context, error.toString());
+                  }
                 },
               );
             },
@@ -211,15 +213,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             style: ElevatedButton.styleFrom(
               foregroundColor: AppColors.cream,
             ),
-            onPressed: () {
-              state.addToCart(p, quantidade: quantidade);
-              showBrandSnackBar(
-                context,
-                'Produto adicionado ao carrinho!',
-                icon: Icons.shopping_bag,
-              );
-            },
-            child: const Text('ADICIONAR AO CARRINHO'),
+            onPressed: p.emEstoque ? () async {
+              try {
+                await state.adicionarAoCarrinhoOnline(p, quantidade: quantidade);
+                if (!mounted) return;
+                showBrandSnackBar(context,
+                  'Produto adicionado ao carrinho!', icon: Icons.shopping_bag);
+              } catch (error) {
+                if (mounted) showBrandSnackBar(context, error.toString());
+              }
+            } : null,
+            child: Text(p.emEstoque ? 'ADICIONAR AO CARRINHO' : 'INDISPONÍVEL NO MOMENTO'),
           ),
         ),
       ),

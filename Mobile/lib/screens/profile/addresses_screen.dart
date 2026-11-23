@@ -52,7 +52,13 @@ class AddressesScreen extends StatelessWidget {
                                 ])
                               else
                                 TextButton(
-                                  onPressed: () => state.setEnderecoPrincipal(a.id),
+                                  onPressed: () async {
+                                    try {
+                                      await state.definirEnderecoPrincipalOnline(a.id);
+                                    } catch (error) {
+                                      if (context.mounted) showBrandSnackBar(context, error.toString());
+                                    }
+                                  },
                                   child: const Text('DEFINIR COMO PRINCIPAL'),
                                 ),
                               const Spacer(),
@@ -65,7 +71,13 @@ class AddressesScreen extends StatelessWidget {
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: AppColors.danger, size: 20),
-                                onPressed: () => state.removeAddress(a.id),
+                                onPressed: () async {
+                                  try {
+                                    await state.apagarEnderecoOnline(a.id);
+                                  } catch (error) {
+                                    if (context.mounted) showBrandSnackBar(context, error.toString());
+                                  }
+                                },
                               ),
                             ],
                           ),
@@ -151,35 +163,28 @@ class _AddressFormScreenState extends State<AddressFormScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    final state = AppState.instance;
-                    if (widget.address == null) {
-                      state.addAddress(Address(
-                        id: IdGen.next('addr'),
-                        apelido: _apelidoCtrl.text,
-                        cep: _cepCtrl.text,
-                        rua: _ruaCtrl.text,
-                        numero: _numeroCtrl.text,
-                        complemento: _complementoCtrl.text,
-                        bairro: _bairroCtrl.text,
-                        cidade: _cidadeCtrl.text,
-                        estado: _estadoCtrl.text,
-                      ));
-                    } else {
-                      final a = widget.address!;
-                      a.apelido = _apelidoCtrl.text;
-                      a.cep = _cepCtrl.text;
-                      a.rua = _ruaCtrl.text;
-                      a.numero = _numeroCtrl.text;
-                      a.complemento = _complementoCtrl.text;
-                      a.bairro = _bairroCtrl.text;
-                      a.cidade = _cidadeCtrl.text;
-                      a.estado = _estadoCtrl.text;
-                      state.updateAddress(a);
-                    }
+                onPressed: () async {
+                  if (!_formKey.currentState!.validate()) return;
+                  final novo = widget.address == null;
+                  final a = Address(
+                    id: widget.address?.id ?? '',
+                    apelido: _apelidoCtrl.text,
+                    cep: _cepCtrl.text,
+                    rua: _ruaCtrl.text,
+                    numero: _numeroCtrl.text,
+                    complemento: _complementoCtrl.text,
+                    bairro: _bairroCtrl.text,
+                    cidade: _cidadeCtrl.text,
+                    estado: _estadoCtrl.text,
+                    principal: widget.address?.principal ?? false,
+                  );
+                  try {
+                    await AppState.instance.salvarEnderecoOnline(a, novo: novo);
+                    if (!mounted) return;
                     showBrandSnackBar(context, 'Endereço salvo com sucesso!');
                     Navigator.pop(context);
+                  } catch (error) {
+                    if (mounted) showBrandSnackBar(context, error.toString());
                   }
                 },
                 child: const Text('SALVAR ENDEREÇO'),

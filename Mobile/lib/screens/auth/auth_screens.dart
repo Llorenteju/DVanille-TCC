@@ -16,6 +16,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _senhaCtrl = TextEditingController();
   bool _obscure = true;
+  bool _busy = false;
 
   @override
   Widget build(BuildContext context) {
@@ -69,15 +70,27 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 22),
                 ElevatedButton(
                   style: isDark ? ElevatedButton.styleFrom(foregroundColor: AppColors.cream) : null,
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      final isAdmin = _emailCtrl.text.trim().toLowerCase() == 'admin@dvanille.com';
-                      AppState.instance.login(admin: isAdmin, email: isAdmin ? '' : _emailCtrl.text.trim());
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        isAdmin ? '/admin' : '/main',
-                        (r) => false,
+                  onPressed: _busy ? null : () async {
+                    if (!_formKey.currentState!.validate()) return;
+                    setState(() => _busy = true);
+                    try {
+                      final state = AppState.instance;
+                      await state.loginOnline(
+                        email: _emailCtrl.text,
+                        senha: _senhaCtrl.text,
                       );
+                      if (!mounted) return;
+                      if (state.isAdmin) {
+                        state.logout();
+                        showBrandSnackBar(context,
+                          'A área administrativa é acessada pelo site Web da D’Vanille.');
+                        return;
+                      }
+                      Navigator.pushNamedAndRemoveUntil(context, '/main', (r) => false);
+                    } catch (error) {
+                      if (mounted) showBrandSnackBar(context, error.toString());
+                    } finally {
+                      if (mounted) setState(() => _busy = false);
                     }
                   },
                   child: const Text('ENTRAR'),
@@ -119,6 +132,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
   final _telefoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _senhaCtrl = TextEditingController();
+  bool _busy = false;
 
   final _telefoneMask = MaskTextInputFormatter(
     mask: '(##) #####-####',
@@ -174,20 +188,28 @@ class _CadastroScreenState extends State<CadastroScreen> {
                   controller: _senhaCtrl,
                   obscureText: true,
                   decoration: const InputDecoration(hintText: 'Senha', prefixIcon: Icon(Icons.lock_rounded, color: AppColors.danger,)),
-                  validator: (v) => (v == null || v.length < 4) ? 'Mínimo de 4 caracteres' : null,
+                  validator: (v) => (v == null || v.length < 8 || !RegExp(r'[A-Za-z]').hasMatch(v) || !RegExp(r'\d').hasMatch(v))
+                    ? 'Mínimo de 8 caracteres, com letra e número' : null,
                 ),
                 const SizedBox(height: 22),
                 ElevatedButton(
                   style: isDark ? ElevatedButton.styleFrom(foregroundColor: AppColors.cream) : null,
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      AppState.instance.updateProfile(
-                        nome: _nomeCtrl.text.trim(),
-                        email: _emailCtrl.text.trim(),
+                  onPressed: _busy ? null : () async {
+                    if (!_formKey.currentState!.validate()) return;
+                    setState(() => _busy = true);
+                    try {
+                      await AppState.instance.cadastrarOnline(
+                        nome: _nomeCtrl.text,
                         telefone: _telefoneMask.getUnmaskedText(),
+                        email: _emailCtrl.text,
+                        senha: _senhaCtrl.text,
                       );
-                      AppState.instance.login();
+                      if (!mounted) return;
                       Navigator.pushNamedAndRemoveUntil(context, '/main', (r) => false);
+                    } catch (error) {
+                      if (mounted) showBrandSnackBar(context, error.toString());
+                    } finally {
+                      if (mounted) setState(() => _busy = false);
                     }
                   },
                   child: const Text('CRIAR CONTA'),
@@ -211,6 +233,7 @@ class RecuperarScreen extends StatefulWidget {
 
 class _RecuperarScreenState extends State<RecuperarScreen> {
   final _emailCtrl = TextEditingController();
+  bool _busy = false;
 
   @override
   Widget build(BuildContext context) {
@@ -236,9 +259,23 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
               const SizedBox(height: 22),
               ElevatedButton(
                 style: isDark ? ElevatedButton.styleFrom(foregroundColor: AppColors.cream) : null,
-                onPressed: () {
-                  final ok = _emailCtrl.text.contains('@');
-                  Navigator.pushNamed(context, ok ? '/emailok' : '/emailfail');
+                onPressed: _busy ? null : () async {
+                  if (!_emailCtrl.text.contains('@')) {
+                    showBrandSnackBar(context, 'Informe um e-mail válido.');
+                    return;
+                  }
+                  setState(() => _busy = true);
+                  try {
+                    await AppState.instance.api.post('/auth/forgot-password', {
+                      'email': _emailCtrl.text.trim().toLowerCase(),
+                    }, auth: false);
+                    if (!mounted) return;
+                    Navigator.pushNamed(context, '/emailok');
+                  } catch (error) {
+                    if (mounted) showBrandSnackBar(context, error.toString());
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
                 },
                 child: const Text('ENVIAR'),
               ),

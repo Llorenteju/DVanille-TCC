@@ -238,6 +238,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 6),
               TextFormField(
                 controller: _emailCtrl,
+                readOnly: true, // E-mail não é editável na API atual.
                 keyboardType: TextInputType.emailAddress,
                 validator: (v) =>
                     (v == null || !v.contains('@')) ? 'E-mail inválido' : null,
@@ -352,22 +353,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               const SizedBox(height: 26),
               ElevatedButton(
-                onPressed: () {
-                  if (!_formKey.currentState!.validate()) {
+                onPressed: () async {
+                  if (!_formKey.currentState!.validate()) return;
+                  if (_senhaCtrl.text.isNotEmpty || _confirmarSenhaCtrl.text.isNotEmpty) {
+                    showBrandSnackBar(context,
+                      'Para alterar a senha, use a recuperação de senha na tela de login.');
                     return;
                   }
-
-                  AppState.instance.updateProfile(
-                    nome: _nomeCtrl.text.trim(),
-                    email: _emailCtrl.text.trim(),
-                    telefone: _telCtrl.text.replaceAll(RegExp(r'\D'), ''),
-                  );
-
-                  showBrandSnackBar(
-                    context,
-                    'Alterações salvas com sucesso!',
-                  );
-                  Navigator.pop(context);
+                  try {
+                    await AppState.instance.atualizarPerfilOnline(
+                      nome: _nomeCtrl.text.trim(),
+                      telefone: _telCtrl.text.replaceAll(RegExp(r'\D'), ''),
+                    );
+                    if (!mounted) return;
+                    showBrandSnackBar(context, 'Alterações salvas com sucesso!');
+                    Navigator.pop(context);
+                  } catch (error) {
+                    if (mounted) showBrandSnackBar(context, error.toString());
+                  }
                 },
                 child: const Text('SALVAR ALTERAÇÕES'),
               ),

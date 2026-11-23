@@ -32,6 +32,12 @@ class ProductImage extends StatelessWidget {
         errorBuilder: (_, __, ___) => _fallback(),
       );
     }
+    if (source.startsWith('https://') || source.startsWith('http://')) {
+      return Image.network(
+        source, width: width, height: height, fit: fit,
+        errorBuilder: (_, __, ___) => _fallback(),
+      );
+    }
     return _fallback();
   }
 
@@ -39,7 +45,7 @@ class ProductImage extends StatelessWidget {
         width: width,
         height: height,
         child: Center(
-          child: Text(source, style: TextStyle(fontSize: fallbackFontSize)),
+          child: Text(source.isEmpty || source.contains('/') ? '☕' : source, style: TextStyle(fontSize: fallbackFontSize)),
         ),
       );
 }
@@ -54,7 +60,6 @@ class ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final state = AppState.instance;
-    final isFav = state.isFavorite(product.id);
     final precoExibido = product.emOferta
         ? product.precoOferta!
         : product.preco;
@@ -62,6 +67,7 @@ class ProductCard extends StatelessWidget {
     return ListenableBuilder(
       listenable: state,
       builder: (context, _) {
+        final isFav = state.isFavorite(product.id);
         return GestureDetector(
           onTap: onTap,
           child: Container(
@@ -100,15 +106,18 @@ class ProductCard extends StatelessWidget {
                       top: 6,
                       right: 6,
                       child: GestureDetector(
-                        onTap: () {
-                          state.toggleFavorite(product.id);
-                          showBrandSnackBar(
-                            context,
-                            isFav
-                                ? 'Removido dos favoritos.'
-                                : 'Adicionado aos favoritos.',
-                            icon: Icons.favorite,
-                          );
+                        onTap: () async {
+                          try {
+                            final estavaFavorito = state.isFavorite(product.id);
+                            await state.alternarFavoritoOnline(product.id);
+                            if (!context.mounted) return;
+                            showBrandSnackBar(context,
+                              estavaFavorito ? 'Removido dos favoritos.' : 'Adicionado aos favoritos.',
+                              icon: Icons.favorite,
+                            );
+                          } catch (error) {
+                            if (context.mounted) showBrandSnackBar(context, error.toString());
+                          }
                         },
                         child: Container(
                           padding: const EdgeInsets.all(5),
@@ -196,13 +205,29 @@ class ProductCard extends StatelessWidget {
                           ),
 
                           GestureDetector(
-                            onTap: () {
-                              state.addToCart(product);
-                              showBrandSnackBar(
-                                context,
-                                'Produto adicionado ao carrinho!',
-                                icon: Icons.shopping_bag_outlined,
-                              );
+                            // O carrinho de PRODUTOS é exclusivo do Mobile e
+                            // usa sempre a API compartilhada, nunca memória local.
+                            onTap: () async {
+                              if (!product.emEstoque) {
+                                showBrandSnackBar(
+                                  context,
+                                  'Produto indisponível no momento.',
+                                );
+                                return;
+                              }
+                              try {
+                                await state.adicionarAoCarrinhoOnline(product);
+                                if (!context.mounted) return;
+                                showBrandSnackBar(
+                                  context,
+                                  'Produto adicionado ao carrinho!',
+                                  icon: Icons.shopping_bag_outlined,
+                                );
+                              } catch (error) {
+                                if (context.mounted) {
+                                  showBrandSnackBar(context, error.toString());
+                                }
+                              }
                             },
                             child: Container(
                               padding: const EdgeInsets.all(5),

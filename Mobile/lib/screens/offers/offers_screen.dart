@@ -71,21 +71,14 @@ class OffersScreen extends StatelessWidget {
                           style: TextStyle(fontSize: 13, color: secondaryText, height: 1.4)),
                       const SizedBox(height: 12),
                       ElevatedButton(
-                        onPressed: () => Navigator.pushNamed(context, '/vale-presente'),
+                        onPressed: () => showBrandSnackBar(context,
+                          'A compra de vale-presente é feita no site público da D’Vanille.'),
                         child: Text(
-                          'COMPRAR VALE-PRESENTE', 
+                          'COMO COMPRAR PELO SITE', 
                           style: TextStyle(color: AppColors.cream),
                         ),
                       ),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: () => Navigator.pushNamed(context, '/meus-vales'),
-                    child: const Text('MEUS VALES-PRESENTE'),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -171,38 +164,11 @@ class _GiftCardScreenState extends State<GiftCardScreen> {
               onPressed: selected == null || selected! <= 0
                   ? null
                   : () {
-                      final card = AppState.instance.buyGiftCard(selected!);
-                      showBrandSnackBar(context, 'Vale-presente criado com sucesso!', icon: Icons.card_giftcard);
-                      showDialog(
-                        context: context,
-                        builder: (_) => AlertDialog(
-                          backgroundColor: isDark ? AppColors.darkSecondary : AppColors.cream,
-                          title: Text('Vale-presente gerado', style: TextStyle(color: primaryText)),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Seu presente está pronto!', style: TextStyle(color: secondaryText)),
-                              const SizedBox(height: 10),
-                              Text('Valor: R\$ ${card.valor.toStringAsFixed(2)}', style: TextStyle(color: primaryText)),
-                              Text('Código: ${card.codigo}', style: TextStyle(color: primaryText)),
-                              Text('Validade: ${card.validade.day}/${card.validade.month}/${card.validade.year}', style: TextStyle(color: primaryText)),
-                            ],
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                Navigator.pop(context);
-                              },
-                              child: Text('OK', style: TextStyle(color: isDark ? AppColors.darkHighlight : AppColors.brownStrong)),
-                            ),
-                          ],
-                        ),
-                      );
+                      showBrandSnackBar(context,
+                        'Vale-presentes são adquiridos pelo site público da D’Vanille e usados presencialmente.');
                     },
                     child: Text(
-                      'COMPRAR VALE-PRESENTE',
+                      'COMO COMPRAR PELO SITE',
                       style: TextStyle(color: AppColors.cream),
                     ),
             ),

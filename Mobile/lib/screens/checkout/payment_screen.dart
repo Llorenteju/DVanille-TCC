@@ -15,6 +15,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool precisaTroco = false;
   final _trocoCtrl = TextEditingController();
   String? trocoErro;
+  bool _finalizando = false;
 
   final _numeroCtrl = TextEditingController();
   final _nomeCtrl = TextEditingController();
@@ -117,7 +118,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               style: isDark
                   ? ElevatedButton.styleFrom(foregroundColor: AppColors.cream)
                   : null,
-              onPressed: metodo == null
+              onPressed: metodo == null || _finalizando
                   ? null
                   : () => _confirmar(context, total),
               child: const Text('CONFIRMAR PAGAMENTO'),
@@ -129,7 +130,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  void _confirmar(BuildContext context, double total) {
+  Future<void> _confirmar(BuildContext context, double total) async {
     if (metodo == MetodoPagamento.dinheiro && precisaTroco) {
       final valor = double.tryParse(_trocoCtrl.text.replaceAll(',', '.'));
       if (valor == null || valor < total) {
@@ -148,11 +149,25 @@ class _PaymentScreenState extends State<PaymentScreen> {
       showBrandSnackBar(context, 'Preencha todos os dados do cartão.');
       return;
     }
-    AppState.instance.setMetodoPagamento(metodo!);
-    AppState.instance.trocoPara = precisaTroco
-        ? double.tryParse(_trocoCtrl.text.replaceAll(',', '.'))
-        : null;
-    Navigator.pushNamed(context, '/checkout-ok');
+    if (metodo != MetodoPagamento.pix && metodo != MetodoPagamento.dinheiro) {
+      showBrandSnackBar(context,
+        'Nesta demonstração, use PIX ou dinheiro. Não informe dados reais de cartão.');
+      return;
+    }
+    setState(() => _finalizando = true);
+    try {
+      final state = AppState.instance;
+      state.setMetodoPagamento(metodo!);
+      state.trocoPara = precisaTroco
+          ? double.tryParse(_trocoCtrl.text.replaceAll(',', '.')) : null;
+      await state.criarPedidoOnline();
+      if (!mounted) return;
+      Navigator.pushNamed(context, '/checkout-ok');
+    } catch (error) {
+      if (mounted) showBrandSnackBar(context, error.toString());
+    } finally {
+      if (mounted) setState(() => _finalizando = false);
+    }
   }
 
   Widget _method(MetodoPagamento m, IconData icon, String label) {
@@ -162,7 +177,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final unselectedColor = isDark ? AppColors.darkSurface : AppColors.white;
     final textColor = isDark ? AppColors.darkText : AppColors.brownStrong;
     return GestureDetector(
-      onTap: () => setState(() => metodo = m),
+      onTap: () {
+        if (m != MetodoPagamento.pix && m != MetodoPagamento.dinheiro) {
+          showBrandSnackBar(context,
+            'Na demonstração, use apenas PIX simulado ou dinheiro.');
+          return;
+        }
+        setState(() => metodo = m);
+      },
       child: Container(
         decoration: BoxDecoration(
           color: selected ? selectedColor : unselectedColor,

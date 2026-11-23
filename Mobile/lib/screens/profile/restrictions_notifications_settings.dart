@@ -74,7 +74,7 @@ class _RestrictionsScreenState extends State<RestrictionsScreen> {
                     AppState.instance.updateUserRestrictions(selected);
                     showBrandSnackBar(
                       context,
-                      'Preferências salvas com sucesso!',
+                      'Filtros aplicados nesta sessão (sem sincronizar com o Supabase).',
                     );
                     Navigator.pop(context);
                   },

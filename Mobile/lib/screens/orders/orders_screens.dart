@@ -7,8 +7,25 @@ import '../../widgets/dvanille_brand.dart';
 String _fmtDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
-class OrdersScreen extends StatelessWidget {
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
+
+  @override
+  State<OrdersScreen> createState() => _OrdersScreenState();
+}
+
+class _OrdersScreenState extends State<OrdersScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      try {
+        await AppState.instance.atualizarPedidos();
+      } catch (error) {
+        if (mounted) showBrandSnackBar(context, error.toString());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,7 +195,23 @@ class OrderTrackingScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Pedido ${order.numeroPedido}', style: Theme.of(context).textTheme.titleLarge),
+                Row(
+                  children: [
+                    Expanded(child: Text('Pedido ${order.numeroPedido}',
+                      style: Theme.of(context).textTheme.titleLarge)),
+                    IconButton(
+                      tooltip: 'Atualizar acompanhamento',
+                      onPressed: () async {
+                        try {
+                          await state.atualizarStatusPedidoOnline(order);
+                        } catch (error) {
+                          if (context.mounted) showBrandSnackBar(context, error.toString());
+                        }
+                      },
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 20),
                 ...List.generate(flow.length, (i) {
                   final done = i <= currentIndex;
@@ -211,7 +244,7 @@ class OrderTrackingScreen extends StatelessWidget {
                   );
                 }),
                 const Divider(height: 32),
-                Text('Previsão: 25–40 minutos', style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkTextSecondary : AppColors.textMuted)),
+                Text('Acompanhe o status atualizado do seu pedido.', style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkTextSecondary : AppColors.textMuted)),
               ],
             ),
           );

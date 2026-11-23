@@ -102,6 +102,9 @@ class Product {
   List<String> ingredientes;
   List<String> alergenicos;
   Set<DietaryRestriction> restricoes;
+  final int stock;
+  final bool disponivel;
+  bool get emEstoque => disponivel && stock > 0;
   bool popular;
   bool emOferta;
   double? precoOferta;
@@ -118,6 +121,8 @@ class Product {
     this.ingredientes = const [],
     this.alergenicos = const [],
     this.restricoes = const {},
+    this.stock = 0,
+    this.disponivel = true,
     this.popular = false,
     this.emOferta = false,
     this.precoOferta,
@@ -172,6 +177,7 @@ enum StatusPedido {
   saiuEntrega,
   entregue,
   retirado,
+  cancelado,
 }
 
 extension StatusPedidoX on StatusPedido {
@@ -189,6 +195,8 @@ extension StatusPedidoX on StatusPedido {
         return 'Entregue';
       case StatusPedido.retirado:
         return 'Retirado';
+      case StatusPedido.cancelado:
+        return 'Cancelado';
     }
   }
 }
