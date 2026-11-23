@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app/app.dart';
@@ -35,6 +36,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
   final descricao = TextEditingController();
   final ingredientes = TextEditingController();
   final preco = TextEditingController();
+  final estoque = TextEditingController(text: '0');
   final imagem = TextEditingController();
   final alergenicos = TextEditingController();
   final calorias = TextEditingController();
@@ -147,6 +149,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
         .where((s) => !s.toLowerCase().contains('não informado'))
         .join(', ');
     preco.text = (produto.precoAntigo ?? produto.preco).toStringAsFixed(2);
+    estoque.text = produto.estoque.toString();
     disponivelNoCardapio = produto.disponivel;
     // Fotos enviadas ao navegador ficam em data URI. Não exibimos a string
     // enorme no campo de URL: ela continua disponível para pré-visualização.
@@ -188,6 +191,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       descricao,
       ingredientes,
       preco,
+      estoque,
       imagem,
       alergenicos,
       calorias,
@@ -477,6 +481,15 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       setState(() => erro = 'O preço deve ser maior que zero.');
       return;
     }
+
+    final quantidadeEstoque = int.tryParse(estoque.text.trim());
+    if (quantidadeEstoque == null ||
+        quantidadeEstoque < 0 ||
+        quantidadeEstoque > 1000000) {
+      setState(() => erro =
+          'Informe uma quantidade de estoque válida (de 0 a 1.000.000).');
+      return;
+    }
     if (state.nomeProdutoDuplicado(nome.text, ignorando: editando)) {
       setState(() => erro = 'Já existe um produto com esse nome.');
       return;
@@ -543,6 +556,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       descricao: descricao.text.trim(),
       imagem: caminhoImagem,
       disponivel: disponivelNoCardapio,
+      estoque: quantidadeEstoque,
       ativo: editando?.ativo ?? true,
       icon: editando?.icon ?? '🍽️',
       ingredientes: _lista(ingredientes),
@@ -663,13 +677,25 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
                     ),
                     decoration: const InputDecoration(labelText: 'Preço (R\$)'),
                   ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: estoque,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'Quantidade em estoque (unidades)',
+                      hintText: 'Ex.: 20',
+                      helperText: 'Use 0 se o produto estiver esgotado.',
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Disponível no cardápio público'),
                     subtitle: const Text(
                       'Ative somente depois de conferir ingredientes e alergênicos. '
-                      'Produtos novos ficam com estoque zero.',
+                      'Confira também a quantidade de unidades em estoque.',
                     ),
                     value: disponivelNoCardapio,
                     onChanged: (v) => setState(() => disponivelNoCardapio = v),

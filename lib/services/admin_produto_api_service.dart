@@ -200,6 +200,7 @@ class AdminProdutoApiService {
       'name': produto.nome.trim(),
       'description': produto.descricao.trim(),
       'price': produto.preco,
+      'stock': produto.estoque,
       'ingredients': produto.ingredientes.join(', '),
       'allergens': produto.alergenicos.join(', '),
       'calories':
@@ -215,7 +216,7 @@ class AdminProdutoApiService {
       'isAvailable': produto.disponivel,
     };
     if (novo) {
-      map.addAll({'stock': 0, 'isActive': true});
+      map['isActive'] = true;
     }
     if (incluirImagem) map['image'] = produto.imagem.trim();
     return map;
@@ -231,6 +232,11 @@ class AdminProdutoApiService {
     if (produto.nome.trim().length < 2 || produto.preco <= 0) {
       throw const AdminProdutoApiException(
         'Informe um nome com pelo menos 2 letras e preço maior que zero.',
+      );
+    }
+    if (produto.estoque < 0 || produto.estoque > 1000000) {
+      throw const AdminProdutoApiException(
+        'Informe um estoque válido de 0 a 1.000.000 unidades.',
       );
     }
     final categoryId = await _categoriaId(produto.categoria);
@@ -302,6 +308,21 @@ class AdminProdutoApiService {
     } finally {
       client.close();
     }
+  }
+
+  /// Acrescenta unidades ao estoque real pelo endpoint administrativo.
+  /// Utiliza ajuste relativo para não sobrescrever pedidos simultâneos.
+  Future<void> reporEstoque(int produtoId, int quantidade) async {
+    if (produtoId <= 0 || quantidade < 1 || quantidade > 1000000) {
+      throw const AdminProdutoApiException(
+        'Informe um produto válido e uma reposição de 1 a 1.000.000 unidades.',
+      );
+    }
+    await _request(
+      'PATCH',
+      'admin/stock/$produtoId',
+      data: {'adjustment': quantidade},
+    );
   }
 
   /// Evita exclusão definitiva: desativa no Supabase, com histórico preservado.

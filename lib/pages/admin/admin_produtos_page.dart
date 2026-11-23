@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:dvanille/app/app.dart';
 import 'package:dvanille/data/mock_data.dart';
@@ -21,6 +22,7 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
   final TextEditingController _buscaController = TextEditingController();
   String _categoriaSelecionada = 'todas';
   bool _ordemCrescente = true;
+  bool _repondoEstoque = false;
 
   @override
   void dispose() {
@@ -92,8 +94,123 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
     }
   }
 
+  /// Reposição de unidades: a API acrescenta a quantidade, sem sobrescrever
+  /// um estoque que possa ter mudado após pedidos de outros clientes.
+  Future<void> _reporEstoque(Produto produto) async {
+    if (_repondoEstoque) return;
+
+    String quantidadeTexto = '';
+    String? erroQuantidade;
+    final quantidade = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, alterarDialogo) => AlertDialog(
+          title: const Text('Repor estoque'),
+          content: SizedBox(
+            width: 350,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  produto.nome,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: _corTexto,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text('Quantidade atual: ${produto.estoque} unidades'),
+                const SizedBox(height: 14),
+                TextFormField(
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: (texto) {
+                    quantidadeTexto = texto;
+                    if (erroQuantidade != null) {
+                      alterarDialogo(() => erroQuantidade = null);
+                    }
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Unidades a acrescentar',
+                    hintText: 'Ex.: 10',
+                    helperText: 'As unidades serão somadas ao estoque atual.',
+                    errorText: erroQuantidade,
+                    prefixIcon: const Icon(Icons.add_box_outlined),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                final valor = int.tryParse(quantidadeTexto.trim());
+                if (valor == null || valor < 1 || valor > 1000000) {
+                  alterarDialogo(() => erroQuantidade =
+                      'Informe entre 1 e 1.000.000 unidades.');
+                  return;
+                }
+                Navigator.pop(dialogContext, valor);
+              },
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Adicionar unidades'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || quantidade == null) return;
+
+    setState(() => _repondoEstoque = true);
+    try {
+      await AdminProdutoApiService().reporEstoque(produto.id, quantidade);
+      await AppState.instance.carregarCatalogoApi();
+      if (!mounted) return;
+      if (AppState.instance.erroCatalogoApi != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Reposição enviada, mas não foi possível atualizar a lista. '
+              'Atualize a página antes de tentar novamente.',
+            ),
+          ),
+        );
+      } else {
+        showToast('$quantidade unidades adicionadas ao estoque!', 'palmas.svg');
+      }
+    } on AdminProdutoApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${e.mensagem} Confira a quantidade atual antes de repetir a reposição.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Falha ao consultar ou atualizar o estoque. '
+            'Confira a quantidade antes de tentar novamente.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _repondoEstoque = false);
+    }
+  }
+
   Widget _menuAcoes(Produto produto) {
     return PopupMenuButton<String>(
+      enabled: !_repondoEstoque,
       tooltip: 'Ações de ${produto.nome}',
       icon: Icon(Icons.more_horiz_rounded, color: _corSecundaria),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -104,6 +221,9 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
             break;
           case 'editar':
             _editarProduto(produto);
+            break;
+          case 'repor':
+            _reporEstoque(produto);
             break;
           case 'excluir':
             _excluirProduto(produto);
@@ -125,6 +245,15 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
             Icon(Icons.edit_outlined),
             SizedBox(width: 12),
             Text('Editar'),
+          ]),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'repor',
+          child: Row(children: [
+            Icon(Icons.add_box_outlined),
+            SizedBox(width: 12),
+            Text('Repor estoque'),
           ]),
         ),
         PopupMenuDivider(),
@@ -197,6 +326,37 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
           ],
         ],
       );
+
+  Widget _estoque(Produto produto) {
+    final esgotado = produto.estoque <= 0;
+    final baixo = produto.estoque > 0 && produto.estoque <= 5;
+    final cor = esgotado
+        ? const Color(0xFFBA4545)
+        : baixo
+            ? DVanilleColors.rose
+            : _corTexto;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${produto.estoque} un.',
+          style: TextStyle(color: cor, fontWeight: FontWeight.w700),
+        ),
+        if (esgotado || baixo) ...[
+          const SizedBox(height: 4),
+          Text(
+            esgotado ? 'Esgotado' : 'Estoque baixo',
+            style: TextStyle(
+              color: cor,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   Widget _foto(Produto produto, double tamanho) => SizedBox(
         width: tamanho,
@@ -280,7 +440,7 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: constraints.maxWidth < 900 ? 900 : constraints.maxWidth,
+            width: constraints.maxWidth < 1060 ? 1060 : constraints.maxWidth,
             child: Column(
               children: [
                 Container(
@@ -294,6 +454,7 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
                       Expanded(flex: 4, child: Text('PRODUTO')),
                       Expanded(flex: 3, child: Text('CATEGORIA')),
                       Expanded(flex: 2, child: Text('PREÇO')),
+                      Expanded(flex: 2, child: Text('ESTOQUE')),
                       Expanded(flex: 2, child: Text('STATUS')),
                       SizedBox(width: 66, child: Text('AÇÕES')),
                     ],
@@ -344,6 +505,7 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
                               ),
                             ),
                             Expanded(flex: 2, child: _preco(produto)),
+                            Expanded(flex: 2, child: _estoque(produto)),
                             Expanded(flex: 2, child: _status(produto)),
                             SizedBox(width: 66, child: _menuAcoes(produto)),
                           ],
@@ -404,8 +566,10 @@ class _AdminProdutosPageState extends State<AdminProdutosPage> {
           Divider(color: _corBorda),
           const SizedBox(height: 10),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: _preco(produto)),
+              Expanded(child: _estoque(produto)),
               _status(produto),
             ],
           ),
