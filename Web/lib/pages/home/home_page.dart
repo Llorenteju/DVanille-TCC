@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -429,25 +430,12 @@ class HomePage extends StatelessWidget {
                             isDark ? DVanilleColors.darkCream : Colors.white,
                       ),
                       onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) {
-                            return AlertDialog(
-                              title: Text('App D’Vanille'),
-                              content: Text(
-                                'Em breve você poderá baixar o aplicativo D’Vanille e fazer seus pedidos por delivery.',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  child: Text('Fechar'),
-                                ),
-                              ],
-                            );
-                          },
+                        html.window.open(
+                          'https://github.com/Llorenteju/DVanille-TCC/releases/latest/download/DVanille.apk',
+                          '_blank',
                         );
                       },
-                      child: Text('Pedir pelo app'),
+                      child: Text('Baixar app para Android'),
                     ),
                   ],
                 ),
