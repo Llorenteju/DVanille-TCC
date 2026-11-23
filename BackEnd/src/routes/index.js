@@ -22,6 +22,10 @@ router.use('/reviews', require('./reviewRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/loyalty', require('./loyaltyRoutes'));
 // Rotas exclusivas de administrador, sem alterar o adminRoutes existente.
+router.use('/gift-vouchers', require('./giftVoucherRoutes'));
+router.use('/table-orders', require('./tableOrderRoutes'));
+router.use('/admin/gift-vouchers', require('./giftVoucherAdminRoutes'));
+router.use('/admin/table-orders', require('./tableOrderAdminRoutes'));
 router.use('/admin/reservations', require('./reservationAdminRoutes'));
 router.use('/admin', require('./adminRoutes'));
 
