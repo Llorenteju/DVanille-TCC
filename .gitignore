@@ -1,0 +1,17 @@
+# Dados privados e segredos
+.env
+.env.local
+.env.production
+.env.development
+
+# Dependencias e artefatos de compilacao
+**/node_modules/
+**/.dart_tool/
+**/build/
+**/dist/
+**/coverage/
+
+# Arquivos locais
+**/*.backup
+**/*.log
+.DS_Store
