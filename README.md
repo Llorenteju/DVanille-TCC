@@ -257,6 +257,7 @@ A pasta `Web/build/web` resultante é a que deve ser enviada ao Cloudflare Pages
 ## 👩‍💻 Equipe e contexto acadêmico
 
 **Projeto:** D’Vanille — Cafeteria Inclusiva e Tecnológica
+**Equipe:** ANA CLARA TORRES, JULIA LLORENTE, YASMIN BERNARDES, VIVIANE DIAS E KARINA SOUZA.
 **Formação:** Técnico em Desenvolvimento de Sistemas
 **Turma:** DS2B
 **Finalidade:** Trabalho de Conclusão de Curso
