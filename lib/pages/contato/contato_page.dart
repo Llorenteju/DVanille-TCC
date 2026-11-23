@@ -125,7 +125,7 @@ class _ContatoPageState extends State<ContatoPage> {
           _linhaInstagram('@dvanille.cafeteria'),
           const SizedBox(height: 14),
           const DicaCampo(
-            "Equipe D'Vanille: Ana Clara, Julia, Karina e Viviane.",
+            "Equipe D'Vanille: Ana Clara, Julia, Karina, Viviane e Yasmin Bernardes.",
           ),
         ],
       ),

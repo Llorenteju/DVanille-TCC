@@ -363,6 +363,7 @@ O sistema web está sendo aprimorado com ajustes de interface, responsividade, n
 - Julia Leite Llorente
 - Karina de Souza Honorato do Nascimento
 - Viviane Dias Nunes
+- Yasmin Bernardes
 
 ## Repositório
 
