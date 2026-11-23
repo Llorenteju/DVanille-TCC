@@ -105,6 +105,23 @@ async function create(user, input) {
 
   try {
     return await prisma.$transaction(async tx => {
+      // Baixa o estoque na mesma transacao que registra a comanda.
+      // Ordem deterministica de produtos reduz conflitos entre pedidos simultaneos.
+      for (const item of [...items].sort((a, b) => a.productId - b.productId)) {
+        const reserved = await tx.product.updateMany({
+          where: {
+            id: item.productId,
+            isActive: true,
+            isAvailable: true,
+            stock: { gte: item.quantity },
+          },
+          data: { stock: { decrement: item.quantity } },
+        });
+        if (reserved.count !== 1) {
+          throw AppError.conflict(`Estoque insuficiente para "${item.name}". Atualize a comanda.`);
+        }
+      }
+
       const id = crypto.randomUUID();
       await tx.$executeRaw`
         INSERT INTO table_orders (id, client_request_id, table_label, user_id, buyer_email,
