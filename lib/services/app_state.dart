@@ -18,6 +18,7 @@ import 'auth_api_service.dart';
 import 'user_preferences_mapper.dart';
 import 'produto_api_service.dart';
 import 'admin_produto_api_service.dart';
+import 'vale_presente_api_service.dart';
 
 /// Configuração de uma promoção de um produto já cadastrado.
 /// As datas são inclusivas: uma promoção com término em 10/11
@@ -139,6 +140,13 @@ class AppState extends ChangeNotifier {
     await carregarValesPresentes();
     // Restaura a sessão antes de buscar o catálogo.
     await restaurarSessaoApi();
+    if (logadoPelaApi) {
+      try {
+        await carregarValesApi();
+      } catch (e) {
+        debugPrint('Vales da API indisponíveis: $e');
+      }
+    }
     await carregarCatalogoApi();
     try {
       final preferencias = await SharedPreferences.getInstance();
@@ -948,6 +956,11 @@ class AppState extends ChangeNotifier {
           debugPrint('Preferências ainda não disponíveis: $erro');
         }
       }
+      try {
+        await carregarValesApi();
+      } catch (erro) {
+        debugPrint('Não foi possível sincronizar os vales: $erro');
+      }
       notifyListeners();
       // Recarrega a lista com /admin/products após login administrativo.
       if (isAdmin) await carregarCatalogoApi();
@@ -973,6 +986,11 @@ class AppState extends ChangeNotifier {
       }));
     }
     usuarioLogado = null;
+    valePresentes.clear();
+    _validadesVales.clear();
+    _resgatesVales.clear();
+    _requisicaoValesPendente = null;
+    _requisicaoValesItens = null;
     // Nunca manter dados administrativos na tela depois de sair.
     produtos.clear();
     catalogoApiAtivo = false;
@@ -1446,6 +1464,109 @@ class AppState extends ChangeNotifier {
     if (reserva != null) {
       reserva.status = status;
       notifyListeners();
+    }
+  }
+
+  // ================= VALES-PRESENTE NA API =================
+
+  String? _requisicaoValesPendente;
+  String? _requisicaoValesItens;
+
+  /// API é a única fonte de verdade quando existe sessão autenticada.
+  /// Limpa os registros de demonstração antes de consultar o banco.
+  Future<void> carregarValesApi() async {
+    if (!logadoPelaApi) return;
+    valePresentes.clear();
+    _validadesVales.clear();
+    _resgatesVales.clear();
+    notifyListeners();
+    final api = ValePresenteApiService.instance;
+    final registros = isAdmin ? await api.listarAdmin() : await api.listarMeus();
+    _aplicarValesApi(registros, substituir: true);
+  }
+
+  void _aplicarValesApi(List<ValeRegistroApi> registros, {bool substituir = false}) {
+    if (substituir) {
+      valePresentes.clear();
+      _validadesVales.clear();
+      _resgatesVales.clear();
+    }
+    for (final registro in registros) {
+      valePresentes.removeWhere((v) => v.id == registro.id);
+      valePresentes.add(ValePresente(
+        id: registro.id,
+        valor: registro.valor,
+        codigo: registro.codigo,
+        status: registro.status,
+        criadoEm: _formatarData(registro.criadoEm),
+        destinatario: registro.destinatario,
+        mensagem: registro.mensagem,
+        compradorEmail: registro.compradorEmail,
+      ));
+      _validadesVales[registro.id] = registro.validade;
+      if (registro.resgatadoEm != null) {
+        _resgatesVales[registro.id] = registro.resgatadoEm!;
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Emissão exclusivamente demonstrativa. O backend bloqueia em produção
+  /// até que exista confirmação real do pagamento.
+  Future<List<ValePresente>> confirmarCompraValePresentesApi() async {
+    if (!podeComprar || !logadoPelaApi) {
+      throw StateError('Entre com uma conta de cliente para confirmar os vales.');
+    }
+    final itens = itensValePresentes.toList(growable: false);
+    if (itens.isEmpty) return [];
+    final assinaturaItens = jsonEncode(itens.map((item) => <String, dynamic>{
+      'id': item.id, 'valor': item.preco, 'qtd': item.qtd,
+      'destinatario': item.destinatario, 'mensagem': item.mensagem,
+    }).toList());
+    if (_requisicaoValesItens != assinaturaItens) {
+      _requisicaoValesPendente = null;
+      _requisicaoValesItens = assinaturaItens;
+    }
+    final requisicao = _requisicaoValesPendente ??=
+        'VP-${DateTime.now().microsecondsSinceEpoch}-${_rand.nextInt(999999)}';
+    final registrados = await ValePresenteApiService.instance.emitirDemonstracao(
+      requestId: requisicao,
+      items: itens.map((item) => <String, dynamic>{
+        'value': item.preco,
+        'recipient': item.destinatario,
+        'message': item.mensagem,
+        'quantity': item.qtd,
+      }).toList(),
+    );
+    _aplicarValesApi(registrados);
+    final ids = itens.map((item) => item.id).toSet();
+    carrinho.removeWhere((item) => ids.contains(item.id));
+    cupomAplicado = null;
+    _requisicaoValesPendente = null;
+    _requisicaoValesItens = null;
+    notifyListeners();
+    return valePresentes.where((v) => registrados.any((r) => r.id == v.id)).toList();
+  }
+
+  Future<String?> resgatarValePresenteApi(String codigo) async {
+    if (!isAdmin || !logadoPelaApi) return 'Entre com uma conta administrativa.';
+    try {
+      final registro = await ValePresenteApiService.instance.resgatar(codigo);
+      _aplicarValesApi([registro]);
+      return null;
+    } catch (e) {
+      return e.toString().replaceFirst('Bad state: ', '');
+    }
+  }
+
+  Future<String?> cancelarValePresenteApi(String id) async {
+    if (!isAdmin || !logadoPelaApi) return 'Entre com uma conta administrativa.';
+    try {
+      final registro = await ValePresenteApiService.instance.cancelar(id);
+      _aplicarValesApi([registro]);
+      return null;
+    } catch (e) {
+      return e.toString().replaceFirst('Bad state: ', '');
     }
   }
 

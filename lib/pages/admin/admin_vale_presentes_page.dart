@@ -33,6 +33,20 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _carregarVales();
+  }
+
+  Future<void> _carregarVales() async {
+    try {
+      await AppState.instance.carregarValesApi();
+    } catch (e) {
+      if (mounted) _avisar('Falha ao carregar vales do banco: $e');
+    }
+  }
+
+  @override
   void dispose() {
     _buscaController.dispose();
     _codigoController.dispose();
@@ -345,7 +359,7 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
       ),
     );
     if (!mounted || confirmado != true) return;
-    final problema = state.resgatarValePresente(vale.codigo);
+    final problema = await state.resgatarValePresenteApi(vale.codigo);
     if (problema != null) {
       _avisar(problema);
     } else {
@@ -391,7 +405,7 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
       ),
     );
     if (!mounted || confirmar != true) return;
-    final problema = AppState.instance.cancelarValePresente(vale.id);
+    final problema = await AppState.instance.cancelarValePresenteApi(vale.id);
     if (problema == null) {
       showToast('Vale-presente cancelado!', 'presente.svg');
       setState(() => _aba = 'historico');
@@ -443,9 +457,6 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
           case 'cancelar':
             _cancelarVale(vale);
             break;
-          case 'excluir':
-            _excluirVale(vale);
-            break;
         }
       },
       itemBuilder: (_) => [
@@ -456,7 +467,6 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
               value: 'resgatar', child: Text('Confirmar resgate')),
           const PopupMenuItem(value: 'cancelar', child: Text('Cancelar vale')),
         ],
-        const PopupMenuItem(value: 'excluir', child: Text('Excluir registro')),
       ],
     );
   }
@@ -782,7 +792,7 @@ class _AdminValePresentesPageState extends State<AdminValePresentesPage> {
                     _cardsMobile(filtrados),
                   const SizedBox(height: 20),
                   Text(
-                    'Um vale utilizado não pode ser resgatado novamente. Se a compra for menor, a diferença de valor deve ser restituída ao consumidor. Sem backend, os dados são locais a este navegador.',
+                     'Os códigos são de uso presencial e resgate único, validados no banco. A diferença de valores deve seguir as condições de compra e as normas aplicáveis. A emissão pelo site é demonstrativa.' ,
                     style: TextStyle(color: _subtexto, fontSize: 12),
                   ),
                 ],

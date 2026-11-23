@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/app.dart';
 import '../../services/admin_dashboard_api_service.dart';
+import '../../services/pedido_mesa_api_service.dart';
 import '../../services/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/ui_kit.dart';
@@ -22,16 +24,23 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   AdminDashboardDados? _dados;
   String? _erro;
   bool _carregando = true;
+  final TextEditingController _mesaQrController = TextEditingController(text: '1');
+  List<PedidoMesaApi> _pedidosMesa = [];
+  bool _carregandoMesas = true;
+  String? _erroMesas;
+
 
   @override
   void initState() {
     super.initState();
     _carregarDashboard();
+    _carregarPedidosMesa();
   }
 
   @override
   void dispose() {
     _api.dispose();
+    _mesaQrController.dispose();
     super.dispose();
   }
 
@@ -58,6 +67,153 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
+  }
+
+  Future<void> _carregarPedidosMesa() async {
+    if (!mounted) return;
+    setState(() {
+      _carregandoMesas = true;
+      _erroMesas = null;
+    });
+    try {
+      final lista = await PedidoMesaApiService.instance.listarAdmin();
+      if (mounted) setState(() => _pedidosMesa = lista);
+    } catch (e) {
+      if (mounted) setState(() => _erroMesas = e.toString().replaceFirst('Bad state: ', ''));
+    } finally {
+      if (mounted) setState(() => _carregandoMesas = false);
+    }
+  }
+
+  Future<void> _gerarQrMesa() async {
+    try {
+      final mesa = _mesaQrController.text.trim();
+      final dados = await PedidoMesaApiService.instance.qrDaMesa(mesa);
+      if (!mounted) return;
+      final token = dados['token'].toString();
+      final link = '${Uri.base.origin}/#${Routes.comandaMesa}?mesa=${Uri.encodeQueryComponent(mesa)}&token=${Uri.encodeQueryComponent(token)}';
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Link assinado da Mesa $mesa'),
+          content: SizedBox(width: 500, child: SelectableText(link)),
+          actions: [
+            TextButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Copiar link para gerar QR Code'),
+            ),
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fechar')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao gerar QR: $e')),
+      );
+    }
+  }
+
+  List<String> _proximosStatus(String atual) => switch (atual) {
+    'recebido' => ['em preparação', 'cancelado'],
+    'em preparação' => ['pronto', 'cancelado'],
+    'pronto' => ['finalizado', 'cancelado'],
+    _ => const [],
+  };
+
+  Future<void> _atualizarStatusMesa(PedidoMesaApi pedido, String novo) async {
+    try {
+      await PedidoMesaApiService.instance.atualizarStatus(pedido.id, novo);
+      await _carregarPedidosMesa();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao atualizar pedido da mesa: $e')),
+      );
+    }
+  }
+
+  Widget _painelPedidosMesa(BuildContext context) {
+    final cor = _corTexto(context);
+    final proximos = _pedidosMesa;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border.all(color: DVanilleColors.line),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.table_restaurant_outlined, color: DVanilleColors.rose),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Pedidos presenciais por QR Code',
+                style: AppTheme.display(size: 22, color: cor))),
+            IconButton(onPressed: _carregandoMesas ? null : _carregarPedidosMesa,
+                icon: const Icon(Icons.refresh_rounded), tooltip: 'Atualizar pedidos das mesas'),
+          ]),
+          const SizedBox(height: 12),
+          Text('Gerar link de QR Code para uma mesa', style: TextStyle(color: cor)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(width: 140, child: TextField(
+                controller: _mesaQrController,
+                decoration: const InputDecoration(labelText: 'Número da mesa'),
+              )),
+              OutlinedButton.icon(onPressed: _gerarQrMesa,
+                icon: const Icon(Icons.qr_code_rounded), label: const Text('Copiar link do QR')),
+            ],
+          ),
+          const Divider(height: 30),
+          if (_carregandoMesas) const LinearProgressIndicator(),
+          if (_erroMesas != null)
+            Text('Pedidos de mesa indisponíveis: $_erroMesas', style: TextStyle(color: cor)),
+          if (!_carregandoMesas && _erroMesas == null && proximos.isEmpty)
+            Text('Nenhum pedido de mesa registrado ainda.', style: TextStyle(color: cor)),
+          for (final pedido in proximos) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
+                spacing: 14,
+                runSpacing: 8,
+                children: [
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Mesa ${pedido.mesa} • ${_moeda(pedido.total)}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: cor)),
+                    Text('${pedido.status} • ${pedido.compradorEmail}',
+                      style: TextStyle(color: _corSecundaria(context), fontSize: 12)),
+                    for (final item in pedido.itens)
+                      Text('${item.quantidade}x ${item.nome}', style: TextStyle(color: cor, fontSize: 12)),
+                  ]),
+                  if (_proximosStatus(pedido.status).isNotEmpty)
+                    DropdownButton<String>(
+                      hint: const Text('Atualizar status'),
+                      items: _proximosStatus(pedido.status).map((status) =>
+                        DropdownMenuItem(value: status, child: Text(status))).toList(),
+                      onChanged: (status) {
+                        if (status != null) _atualizarStatusMesa(pedido, status);
+                      },
+                    )
+                  else
+                    Text('Concluído', style: TextStyle(color: _corSecundaria(context))),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: DVanilleColors.line),
+          ],
+        ],
+      ),
+    );
   }
 
   String _moeda(num valor) =>
@@ -528,6 +684,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                   },
                 ),
               ],
+              const SizedBox(height: 28),
+              _painelPedidosMesa(context),
             ],
           ),
         );

@@ -50,7 +50,7 @@ class CheckoutPage extends StatelessWidget {
                     '${state.itensValePresentes.length} '
                     'item(ns) de vale-presente, no total de '
                     '${money(state.subtotalValePresentes)}? '
-                    'Após confirmar, os vales serão emitidos.'
+                    'A emissão é demonstrativa e não realiza cobrança real.'
                 : 'Deseja confirmar seu pedido no valor de '
                     '${money(state.subtotalProdutos)}?',
           ),
@@ -84,7 +84,18 @@ class CheckoutPage extends StatelessWidget {
 
     // Finalização da compra dos vale-presentes.
     if (ehCompraVale) {
-      final vales = state.confirmarCompraValePresentes();
+      if (state.cupomAplicado != null) {
+        showToast('Cupons não podem ser utilizados na emissão demonstrativa de vales.', '⚠️');
+        return;
+      }
+      List<dynamic> vales;
+      try {
+        vales = await state.confirmarCompraValePresentesApi();
+      } catch (e) {
+        showToast(e.toString().replaceFirst('Bad state: ', ''), '⚠️');
+        return;
+      }
+      if (!context.mounted) return;
 
       if (vales.isEmpty) {
         showToast(
@@ -103,7 +114,7 @@ class CheckoutPage extends StatelessWidget {
       // O botão "Meus vales-presente" aparece somente
       // após a finalização da compra dos vales.
       showToast(
-        'Compra confirmada! Seus vale-presentes foram emitidos.',
+        'Vales emitidos para demonstração (sem cobrança real).',
         'vales_finalizados',
       );
 

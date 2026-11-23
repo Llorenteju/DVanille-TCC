@@ -68,6 +68,18 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
     if (numeroMesa != null && numeroMesa.isNotEmpty) {
       _mesa = numeroMesa;
       _comandas.abrirComanda(numeroMesa);
+      final argsToken = argumentos is Map ? argumentos['token']?.toString() : null;
+      final qrToken = argsToken ?? rotaFragmento?.queryParameters['token']
+          ?? Uri.base.queryParameters['token'];
+      _comandas.registrarTokenQr(numeroMesa, qrToken);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted || !AppState.instance.logadoPelaApi) return;
+        try {
+          await _comandas.carregarPedidosMesaApi(numeroMesa);
+        } catch (e) {
+          if (mounted) _mostrarMensagem('Não foi possível atualizar o histórico: $e');
+        }
+      });
     }
   }
 
@@ -131,7 +143,7 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
         Routes.login,
         arguments: RedirecionamentoLogin(
           Routes.comandaMesa,
-          {'mesa': _mesa},
+          {'mesa': _mesa, 'token': Uri.base.queryParameters['token'] ?? Uri.tryParse(Uri.base.fragment)?.queryParameters['token']},
         ),
       );
       return;
@@ -188,7 +200,7 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
         Routes.login,
         arguments: RedirecionamentoLogin(
           Routes.comandaMesa,
-          {'mesa': mesa},
+          {'mesa': mesa, 'token': Uri.base.queryParameters['token'] ?? Uri.tryParse(Uri.base.fragment)?.queryParameters['token']},
         ),
       );
       return;
@@ -331,7 +343,7 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
         Routes.login,
         arguments: RedirecionamentoLogin(
           Routes.comandaMesa,
-          {'mesa': mesa},
+          {'mesa': mesa, 'token': Uri.base.queryParameters['token'] ?? Uri.tryParse(Uri.base.fragment)?.queryParameters['token']},
         ),
       );
       return;
@@ -340,7 +352,7 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
     setState(() => _finalizando = true);
 
     try {
-      final sucesso = _comandas.enviarPedidoAoCaixa(mesa);
+      final sucesso = await _comandas.enviarPedidoAoCaixa(mesa);
 
       if (!mounted) return;
 
@@ -350,8 +362,12 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
         );
       } else {
         _mostrarMensagem(
-          'Não foi possível enviar. Confira o status da comanda.',
+          'Não foi possível enviar. Confira o login e a comanda.',
         );
+      }
+    } catch (e) {
+      if (mounted) {
+        _mostrarMensagem(e.toString().replaceFirst('Bad state: ', ''));
       }
     } finally {
       if (mounted) {
@@ -618,7 +634,7 @@ class _ComandaMesaPageState extends State<ComandaMesaPage> {
                             : () {
                                 _comandas.solicitarAtendimento(mesa);
                                 _mostrarMensagem(
-                                  'Garçom solicitado para a mesa $mesa!',
+                                  'Solicitação registrada nesta tela. Aguarde atendimento presencial.',
                                 );
                               },
                         icon: const Icon(Icons.room_service_outlined),

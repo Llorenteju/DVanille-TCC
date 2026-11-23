@@ -193,9 +193,9 @@ class _ShoppingPageState extends State<ShoppingPage> {
           _itemCondicao(
             Icons.payments_outlined,
             'Diferença de valor',
-            'Se a compra for menor que o valor do vale, a diferença deve ser '
-                'restituída conforme a legislação de defesa do consumidor. '
-                'Se for maior, o cliente pode pagar a diferença no caixa.',
+            'O código é de utilização única. Caso o valor da compra seja menor, '
+                'a diferença deverá ser tratada conforme as condições da compra '
+                'e a legislação aplicável. Se for maior, paga-se a diferença no caixa.',
           ),
           _itemCondicao(
             Icons.event_outlined,
