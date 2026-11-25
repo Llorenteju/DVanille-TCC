@@ -6,6 +6,7 @@ import '../../models/usuario.dart';
 import '../../services/app_state.dart';
 import '../../theme/app_theme.dart';
 import 'admin_shell.dart';
+import '../../services/novo_api_http_service.dart';
 
 class AdminUsuariosPage extends StatefulWidget {
   const AdminUsuariosPage({super.key});
@@ -18,6 +19,77 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
   final TextEditingController _buscaController = TextEditingController();
 
   String _filtroTipo = 'todos';
+  List<Usuario> _usuariosApi = [];
+  bool _carregando = true;
+  String? _erro;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarUsuarios();
+  }
+
+  Future<void> _carregarUsuarios() async {
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+
+    try {
+      final usuarios = <Usuario>[];
+
+      for (var pagina = 1; pagina <= 100; pagina++) {
+        final dados = await NovoApiHttpService.instance.request(
+          'GET',
+          '/admin/users?page=$pagina&limit=100',
+        );
+
+        if (dados is! List) {
+          throw StateError('Resposta inválida da API.');
+        }
+
+        for (final item in dados) {
+          if (item is! Map) {
+            throw StateError('Usuário inválido.');
+          }
+
+          usuarios.add(
+            Usuario(
+              id: (item['id'] as num).toInt(),
+              nome: item['name']?.toString() ?? '',
+              email: item['email']?.toString() ?? '',
+              telefone: item['phone']?.toString() ?? '',
+              senha: '',
+              tipo: item['role'] == 'ADMIN'
+                  ? 'admin'
+                  : 'cliente',
+            ),
+          );
+        }
+
+        if (dados.length < 100) break;
+
+        if (pagina == 100) {
+          throw StateError('Limite de usuários excedido.');
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _usuariosApi = usuarios;
+        _carregando = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _usuariosApi = [];
+        _erro = 'Não foi possível carregar os usuários.';
+        _carregando = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -119,7 +191,7 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
   }) {
     if (usuario.restricoes.isEmpty) {
       return Text(
-        'Nenhuma informada',
+        'Não disponível nesta consulta',
         style: TextStyle(
           color: _corSecundaria,
           fontSize: 12,
@@ -986,7 +1058,7 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
     return ListenableBuilder(
       listenable: state,
       builder: (context, _) {
-        final todosUsuarios = state.usuarios;
+        final todosUsuarios = _usuariosApi;
 
         final busca = _buscaController.text.trim().toLowerCase();
 
@@ -1015,6 +1087,25 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
             builder: (context, constraints) {
               final largura = constraints.maxWidth;
 
+              if (_carregando) {
+                return const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              if (_erro != null) {
+                return Column(
+                  children: [
+                    Text(_erro!, style: TextStyle(color: _corTexto)),
+                    TextButton(
+                      onPressed: _carregarUsuarios,
+                      child: const Text('Tentar novamente'),
+                    ),
+                  ],
+                );
+              }
+
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1027,6 +1118,12 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                     ),
                   ),
 
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _carregarUsuarios,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Atualizar usuários'),
+                  ),
                   const SizedBox(height: 24),
 
                   // ESTATÍSTICAS

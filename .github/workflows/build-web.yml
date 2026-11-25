@@ -1,0 +1,43 @@
+name: Compilar DVanille Web
+
+on:
+  push:
+    branches:
+      - admin-usuarios-api
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Instalar dependencias
+        working-directory: Web
+        run: flutter pub get
+
+      - name: Compilar site
+        working-directory: Web
+        run: |
+          flutter build web --release --optimization-level=1 --no-wasm-dry-run --dart-define=DVANILLE_API_URL=/api
+
+      - name: Preservar proxy da API
+        run: cp Web/web/_worker.js Web/build/web/_worker.js
+
+      - name: Disponibilizar site compilado
+        uses: actions/upload-artifact@v4
+        with:
+          name: DVanille-Web
+          path: Web/build/web/
+          include-hidden-files: true
+          if-no-files-found: error
