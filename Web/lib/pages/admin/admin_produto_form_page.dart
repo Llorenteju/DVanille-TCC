@@ -181,7 +181,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
     gorduras.text = campo('gorduras', produto.nutricional.gorduras);
     fibras.text = campo('fibras', produto.nutricional.fibras);
     // Não existe coluna de açúcares no backend atual.
-    acucares.clear();
+    acucares.text = campo('acucares', produto.nutricional.acucares);
   }
 
   @override
@@ -495,12 +495,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       return;
     }
 
-    if (acucares.text.trim().isNotEmpty) {
-      setState(() =>
-          erro = 'A informação de açúcares ainda não tem coluna no banco. '
-              'Deixe esse campo vazio por enquanto.');
-      return;
-    }
+  
     if (_carregandoRestricoes || _erroRestricoes != null) {
       setState(() => erro =
           'Aguarde a consulta das restrições ao Supabase ou tente recarregá-las.');
@@ -528,6 +523,7 @@ class _AdminProdutoFormPageState extends State<AdminProdutoFormPage> {
       'proteinas': proteinas,
       'gorduras': gorduras,
       'fibras': fibras,
+      'acucares': acucares,
     }.entries) {
       if (entrada.value.text.trim().isEmpty) continue;
       final numero = double.tryParse(entrada.value.text.replaceAll(',', '.'));

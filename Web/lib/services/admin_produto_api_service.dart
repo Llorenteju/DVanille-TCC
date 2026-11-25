@@ -210,6 +210,7 @@ class AdminProdutoApiService {
       'proteins': informado('proteinas') ? produto.nutricional.proteinas : null,
       'fats': informado('gorduras') ? produto.nutricional.gorduras : null,
       'fiber': informado('fibras') ? produto.nutricional.fibras : null,
+      'sugars': informado('acucares') ? produto.nutricional.acucares : null,
       'isVegan': produto.restricoes.contains('vegano'),
       'isVegetarian': produto.restricoes.contains('vegano') ||
           produto.restricoes.contains('vegetariano'),
