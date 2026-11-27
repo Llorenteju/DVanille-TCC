@@ -13,7 +13,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://supabase.com/)
 [![Prisma](https://img.shields.io/badge/ORM-Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white)](https://www.prisma.io/)
 
-**[🌐 Acessar o site](https://dvanille-web.pages.dev)** · **[📖 Documentação da API](https://dvanille-api.onrender.com/api/docs)** · **[📷 Instagram](https://www.instagram.com/dvanille.cafeteria/)**
+**[🌐 Acessar o site](https://dvanille-web.pages.dev)** · **[📖 Documentação da API](https://dvanille-api.onrender.com/api/docs)** · **[📷 Instagram](https://www.instagram.com/dvanille.cafeteria/)** · **[📑 Documentação do projeto](https://docs.google.com/document/d/1OtdmenhZNFNmTPohBb1e76ibo0l-2LzJ6I6452iaB8k/edit?usp=sharing)**
 
 </div>
 
